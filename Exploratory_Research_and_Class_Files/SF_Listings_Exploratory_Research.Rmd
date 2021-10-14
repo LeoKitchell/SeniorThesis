@@ -1,0 +1,32 @@
+---
+title: "SF_Listings_Exploratory_Research"
+author: "Leo Kitchell"
+date: "10/13/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+```{r,include=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(lubridate)
+```
+
+```{r, include=FALSE}
+setwd("C:/Users/Leo/Desktop/LOWE Institute/Lowe Projects/Airbnb_Article")
+sfMay <- read.csv("SF_May_Listings.csv")
+```
+
+**Describing the SF Listing Data in One Variable**
+```{r}
+sfMay%>%filter(minimum_nights<181)%>%ggplot()+geom_bar(mapping = aes(x=minimum_nights))+ggtitle("Distribution of Minimum Night Required Stay in SF Listings")
+sfMay%>%mutate(first_review_date=as_date(first_review))%>%ggplot(mapping = aes(x=first_review_date))+geom_histogram()+ggtitle("Distribution of Date of first listing")
+sfMay%>%mutate(first_review_date=as_date(first_review))%>%ggplot(aes(x=first_review_date))+stat_ecdf(geom="step")+ggtitle("Cumulative distribution of listings by date")
+```
+
+
