@@ -31,22 +31,6 @@ library(dplyr)
 # Airbnb Data
 Data has been downloaded from InsideAirbnb for 28 US cities. These data are composed of 3 files for each city. The first file includes every listing within the metropolitan area, a second file contains every review for each listing, and the third contains a forward looking calendar showing the listing's available nights and the price for each night. 
 
-```{r}
-path = "C:/Users/Leo/Desktop/CMC/Senior Year/Fall 2021/SeniorThesis/InsideAirbnbData/Zipped_Data/"
-setwd(path)
-list.files(path)
-losAngeles <- read.csv(paste(path,"reviews_LosAngeles.csv",sep = ""))
-
-n = nrow(losAngeles)
-n=47
-getwd()
-write.csv(losAngeles[1:((n-1)/4),],"reviews_LosAngelesPt1.csv",row.names = FALSE)
-write.csv(losAngeles[((n-1)/4):((n-1)/2),],"reviews_LosAngelesPt2.csv",row.names = FALSE)
-write.csv(losAngeles[((n-1)/2+1):((n-1)*3/4),], "reviews_LosAngelesPt3.csv", row.names = FALSE)
-write.csv(losAngeles[((n-1)*3/4):n,], "reviews_LosAngelesPt4.csv", row.names = FALSE)
-```
-
-
 ## Stacking Data
 Using rbind to stack airbnb data from each filetype (Listings, Calendar, and Reviews) into three dataframes. 
 ```{r, cache=TRUE}
