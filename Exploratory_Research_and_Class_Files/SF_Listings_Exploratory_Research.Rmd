@@ -22,6 +22,16 @@ setwd("C:/Users/Leo/Desktop/LOWE Institute/Lowe Projects/Airbnb_Article")
 sfMay <- read.csv("SF_May_Listings.csv")
 ```
 
+Reads in data to R. Notably this data only goes from 2015 to 2017
+```{r, cache=TRUE}
+allListings <- read.csv("airbnb-listings_opendatasoft.csv", sep = ";")
+```
+
+** Describing the allListings data in one variab.e
+```{r}
+
+```
+
 **Describing the SF Listing Data in One Variable**
 ```{r}
 sfMay%>%filter(minimum_nights<181)%>%ggplot()+geom_bar(mapping = aes(x=minimum_nights))+ggtitle("Distribution of Minimum Night Required Stay in SF Listings")

@@ -1,0 +1,78 @@
+---
+title: "DataCollection"
+author: "Leo Kitchell"
+date: "10/29/2021"
+output: html_document
+---
+
+## Purpose
+The purpose of this document is to gather data from different sources for my senior thesis. This includes pulling ACS 5 Year data from the census using their API, combining the data from InsideAirbnb, and compiling all other data needed to create my measure of gentrification
+
+
+# Airbnb Data
+Data has been downloaded from InsideAirbnb for 28 US cities. These data are composed of 3 files for each city. The first file includes every listing within the metropolitan area, a second file contains every review for each listing, and the third contains a forward looking calendar showing the listing's available nights and the price for each night. 
+
+
+### Stacking Data
+Using rbind to stack airbnb data from each filetype (Listings, Calendar, and Reviews) into three dataframes. 
+```{r, cache=TRUE}
+path = "C:/Users/Leo/Desktop/CMC/Senior Year/Fall 2021/SeniorThesis/InsideAirbnbData/Zipped_Data/"
+file_list = list.files(path = path,'*.csv')
+
+listing_data <- array()
+calendar_data <- array()
+review_data <- array()
+
+for (variable in file_list) {
+  if(grepl("listings",variable,fixed=TRUE)){
+    listing_data <- rbind(listing_data,read.csv(paste(path,variable,sep = "")))
+  } else if (grepl("calendar",variable,fixed=TRUE)){
+     #calendar_data <- rbind(calendar_data,read.csv(paste(path,variable,sep = "")))#commenting this out because the calendar data takes a long time to R bind. 
+  } else if (grepl("reviews",variable,fixed=TRUE)){
+    review_data <- rbind(review_data,read.csv(paste(path,variable,sep = "")))
+  } else{
+    print("Error in stacking Airbnb data.")
+  }
+}
+```
+
+### Cleaning Airbnb Data
+```{r}
+
+```
+
+
+# Gentrification Data
+The specification of gentrification which will be used in this project is heavily inspired by the work of Freeman (2005) and Bates (2013). To compose our gentrification measure we will use median household income, 
+
+
+```{r, include=FALSE}
+#Installing relevant packages
+#install.packages("censusapi")
+library(censusapi)
+```
+
+Setup Census API key to pull data. Didn't work, instead I just put key = key two code chunks down.
+```{r}
+# Add key to .Renviron
+key = "be936e1698dd7dfd657546a6a7088c6306f4e54f"
+Sys.setenv(CENSUS_KEY= key)
+# Reload .Renviron
+readRenviron("~/.Renviron")
+# Check to see that the expected key is output in your R console
+Sys.getenv("CENSUS_KEY")
+```
+
+This saves the tract level population data for Washington state tracts. 
+```{r}
+key = "be936e1698dd7dfd657546a6a7088c6306f4e54f"
+name <- "acs/acs5"
+vintage <- 2019
+region <- "tract:*"
+regionin <- "state:53+county:*"
+  #region <- 140 #geography level for tract data
+
+totalPop <- c("NAME","B01003_001E")
+testdata <- getCensus(name = name,vintage = vintage,key = key, vars = totalPop, regionin = regionin, region = region)
+
+```
