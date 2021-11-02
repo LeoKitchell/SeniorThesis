@@ -179,8 +179,8 @@ pre code {
 <div id="airbnb-data" class="section level1">
 <h1>Airbnb Data</h1>
 <p>Data has been downloaded from InsideAirbnb for 28 US cities. These data are composed of 3 files for each city. The first file includes every listing within the metropolitan area, a second file contains every review for each listing, and the third contains a forward looking calendar showing the listing’s available nights and the price for each night.</p>
-<div id="stacking-data" class="section level3">
-<h3>Stacking Data</h3>
+<div id="stacking-data" class="section level2">
+<h2>Stacking Data</h2>
 <p>Using rbind to stack airbnb data from each filetype (Listings, Calendar, and Reviews) into three dataframes.</p>
 <pre class="r"><code>path = &quot;C:/Users/Leo/Desktop/CMC/Senior Year/Fall 2021/SeniorThesis/InsideAirbnbData/Zipped_Data/&quot;
 file_list = list.files(path = path,&#39;*.csv&#39;)
@@ -201,34 +201,61 @@ for (variable in file_list) {
   }
 }</code></pre>
 </div>
-<div id="cleaning-airbnb-data" class="section level3">
-<h3>Cleaning Airbnb Data</h3>
+<div id="cleaning-airbnb-review-words" class="section level2">
+<h2>Cleaning Airbnb Review Words</h2>
+<div id="remove-text-formatting" class="section level3">
+<h3>Remove text formatting</h3>
+<pre class="r"><code>#create new column that will become the cleaned review data
+review_data$clean_reviews &lt;- review_data$comments
+
+# Remove newlines, carriage returns, tabs, and breaks
+review_data$clean_reviews &lt;- str_replace_all(review_data$clean_reviews,&#39;\n&#39;, &#39; &#39;)
+review_data$clean_reviews &lt;- str_replace_all(review_data$clean_reviews,&#39;\t&#39;, &#39; &#39;)
+review_data$clean_reviews &lt;- str_replace_all(review_data$clean_reviews,&#39;\r&#39;, &#39; &#39;)
+review_data$clean_reviews &lt;- str_replace_all(review_data$clean_reviews,&#39;&lt;br/&gt;&#39;, &#39; &#39;)
+
+#Remove punctuation marks
+review_data$clean_reviews &lt;- str_replace_all(review_data$clean_reviews, &quot;[[:punct:]]&quot;, &quot; &quot;) 
+
+#Remove Stopwords
+stopwords = stopwords(language = &quot;en&quot;, source = &quot;snowball&quot;)
+##TO DO: remove stopwords </code></pre>
+</div>
 </div>
 </div>
 <div id="gentrification-data" class="section level1">
 <h1>Gentrification Data</h1>
-<p>The specification of gentrification which will be used in this project is heavily inspired by the work of Freeman (2005) and Bates (2013). To compose our gentrification measure we will use median household income,</p>
-<p>Setup Census API key to pull data. Didn’t work, instead I just put key = key two code chunks down.</p>
+<p>The specification of gentrification which will be used in this project is heavily inspired by the work of Freeman (2005) and Bates (2013). To compose our gentrification measure we will use Census tract level data on median household income, college attainment, median home value, and percent of the population that is white.</p>
+<div id="census-data" class="section level2">
+<h2>Census Data</h2>
+<div id="setup-census-api-key-to-pull-data." class="section level3">
+<h3>Setup Census API key to pull data.</h3>
 <pre class="r"><code># Add key to .Renviron
 key = &quot;be936e1698dd7dfd657546a6a7088c6306f4e54f&quot;
 Sys.setenv(CENSUS_KEY= key)
 # Reload .Renviron
-readRenviron(&quot;~/.Renviron&quot;)</code></pre>
-<pre><code>## Warning in readRenviron(&quot;~/.Renviron&quot;): file &#39;C:/Users/Leo/Documents/.Renviron&#39;
-## cannot be opened for reading</code></pre>
-<pre class="r"><code># Check to see that the expected key is output in your R console
+readRenviron(&quot;~/.Renviron&quot;)
+# Check to see that the expected key is output in your R console
 Sys.getenv(&quot;CENSUS_KEY&quot;)</code></pre>
-<pre><code>## [1] &quot;be936e1698dd7dfd657546a6a7088c6306f4e54f&quot;</code></pre>
-<p>This saves the tract level population data for Washington state tracts.</p>
-<pre class="r"><code>key = &quot;be936e1698dd7dfd657546a6a7088c6306f4e54f&quot;
-name &lt;- &quot;acs/acs5&quot;
+</div>
+<div id="census-variables" class="section level3">
+<h3>Census Variables</h3>
+<p>Descriptions and codes of variables available in the ACS 5 year dataset located here: <a href="https://www.socialexplorer.com/data/ACS2019_5yr/metadata/?ds=ACS19_5yr" class="uri">https://www.socialexplorer.com/data/ACS2019_5yr/metadata/?ds=ACS19_5yr</a></p>
+<pre class="r"><code>locationName &lt;- &quot;NAME&quot;
+totalPop &lt;- &quot;B01003_001E&quot; #Census table for total population
+rentAsPctInc &lt;- &quot;B25070_001E&quot; #Gross Rent As A Percentage Of Household Income In The Past 12 Months
+rentAsPctInc &lt;- &quot;B25071_001E&quot; # Median Gross Rent As A Percentage Of Household Income In The Past 12 Months (Dollars)
+rawRent &lt;-&quot;B25056_001E&quot; #Contract Rent</code></pre>
+<p>This is an example which saves the tract level population data and some rent data for Washington state tracts.</p>
+<pre class="r"><code>name &lt;- &quot;acs/acs5&quot;
 vintage &lt;- 2019
 region &lt;- &quot;tract:*&quot;
 regionin &lt;- &quot;state:53+county:*&quot;
-  #region &lt;- 140 #geography level for tract data
-
-totalPop &lt;- c(&quot;NAME&quot;,&quot;B01003_001E&quot;)
-testdata &lt;- getCensus(name = name,vintage = vintage,key = key, vars = totalPop, regionin = regionin, region = region)</code></pre>
+testVars &lt;- c(locationName,totalPop, rawRent, rentAsPctInc)
+testdata &lt;- getCensus(name = name,vintage = vintage, vars = testVars, regionin = regionin, region = region)</code></pre>
+<p>Compiling Census Data for all tracts within the MSAs included in the AirBnB data</p>
+</div>
+</div>
 </div>
 
 

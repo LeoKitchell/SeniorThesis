@@ -5,15 +5,34 @@ date: "10/29/2021"
 output: html_document
 ---
 
+```{r, include=FALSE}
+knitr::opts_chunk$set(
+  eval = FALSE
+)
+```
+
 ## Purpose
 The purpose of this document is to gather data from different sources for my senior thesis. This includes pulling ACS 5 Year data from the census using their API, combining the data from InsideAirbnb, and compiling all other data needed to create my measure of gentrification
+
+
+```{r, include=FALSE}
+#Installing relevant packages
+#install.packages("censusapi")
+#install.packages("quanteda")
+#install.packages("stopwords")
+library(stopwords)
+library(quanteda)
+library(censusapi)
+library(stringr)
+library(dplyr)
+```
 
 
 # Airbnb Data
 Data has been downloaded from InsideAirbnb for 28 US cities. These data are composed of 3 files for each city. The first file includes every listing within the metropolitan area, a second file contains every review for each listing, and the third contains a forward looking calendar showing the listing's available nights and the price for each night. 
 
 
-### Stacking Data
+## Stacking Data
 Using rbind to stack airbnb data from each filetype (Listings, Calendar, and Reviews) into three dataframes. 
 ```{r, cache=TRUE}
 path = "C:/Users/Leo/Desktop/CMC/Senior Year/Fall 2021/SeniorThesis/InsideAirbnbData/Zipped_Data/"
@@ -36,23 +55,35 @@ for (variable in file_list) {
 }
 ```
 
-### Cleaning Airbnb Data
-```{r}
+## Cleaning Airbnb Review Words
 
+### Remove text formatting
+```{r}
+#create new column that will become the cleaned review data
+review_data$clean_reviews <- review_data$comments
+
+# Remove newlines, carriage returns, tabs, and breaks
+review_data$clean_reviews <- str_replace_all(review_data$clean_reviews,'\n', ' ')
+review_data$clean_reviews <- str_replace_all(review_data$clean_reviews,'\t', ' ')
+review_data$clean_reviews <- str_replace_all(review_data$clean_reviews,'\r', ' ')
+review_data$clean_reviews <- str_replace_all(review_data$clean_reviews,'<br/>', ' ')
+
+#Remove punctuation marks
+review_data$clean_reviews <- str_replace_all(review_data$clean_reviews, "[[:punct:]]", " ") 
+
+#Remove Stopwords
+stopwords = stopwords(language = "en", source = "snowball")
+##TO DO: remove stopwords 
 ```
+
 
 
 # Gentrification Data
-The specification of gentrification which will be used in this project is heavily inspired by the work of Freeman (2005) and Bates (2013). To compose our gentrification measure we will use median household income, 
+The specification of gentrification which will be used in this project is heavily inspired by the work of Freeman (2005) and Bates (2013). To compose our gentrification measure we will use Census tract level data on median household income, college attainment, median home value, and percent of the population that is white.
 
+## Census Data
 
-```{r, include=FALSE}
-#Installing relevant packages
-#install.packages("censusapi")
-library(censusapi)
-```
-
-Setup Census API key to pull data. Didn't work, instead I just put key = key two code chunks down.
+### Setup Census API key to pull data.
 ```{r}
 # Add key to .Renviron
 key = "be936e1698dd7dfd657546a6a7088c6306f4e54f"
@@ -62,17 +93,30 @@ readRenviron("~/.Renviron")
 # Check to see that the expected key is output in your R console
 Sys.getenv("CENSUS_KEY")
 ```
-
-This saves the tract level population data for Washington state tracts. 
+### Census Variables
+Descriptions and codes of variables available in the ACS 5 year dataset located here: https://www.socialexplorer.com/data/ACS2019_5yr/metadata/?ds=ACS19_5yr
 ```{r}
-key = "be936e1698dd7dfd657546a6a7088c6306f4e54f"
+
+locationName <- "NAME"
+totalPop <- "B01003_001E" #Census table for total population
+rentAsPctInc <- "B25070_001E" #Gross Rent As A Percentage Of Household Income In The Past 12 Months
+rentAsPctInc <- "B25071_001E" #	Median Gross Rent As A Percentage Of Household Income In The Past 12 Months (Dollars)
+rawRent <-"B25056_001E" #Contract Rent
+```
+
+
+This is an example which saves the tract level population data and some rent data for Washington state tracts. 
+```{r}
 name <- "acs/acs5"
 vintage <- 2019
 region <- "tract:*"
 regionin <- "state:53+county:*"
-  #region <- 140 #geography level for tract data
+testVars <- c(locationName,totalPop, rawRent, rentAsPctInc)
+testdata <- getCensus(name = name,vintage = vintage, vars = testVars, regionin = regionin, region = region)
+```
 
-totalPop <- c("NAME","B01003_001E")
-testdata <- getCensus(name = name,vintage = vintage,key = key, vars = totalPop, regionin = regionin, region = region)
+Compiling Census Data for all tracts within the MSAs included in the AirBnB data
+```{r}
 
 ```
+
