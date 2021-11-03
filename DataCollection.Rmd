@@ -1,19 +1,17 @@
 ---
 title: "DataCollection"
 author: "Leo Kitchell"
-date: "10/29/2021"
+date: "11/3/2021"
 output: html_document
 ---
 
 ```{r, include=FALSE}
 knitr::opts_chunk$set(
-  eval = FALSE
-)
+  eval = FALSE)
 ```
 
 ## Purpose
 The purpose of this document is to gather data from different sources for my senior thesis. This includes pulling ACS 5 Year data from the census using their API, combining the data from InsideAirbnb, and compiling all other data needed to create my measure of gentrification
-
 
 ```{r, include=FALSE}
 #Installing relevant packages
@@ -26,7 +24,6 @@ library(censusapi)
 library(stringr)
 library(dplyr)
 ```
-
 
 # Airbnb Data
 Data has been downloaded from InsideAirbnb for 28 US cities. These data are composed of 3 files for each city. The first file includes every listing within the metropolitan area, a second file contains every review for each listing, and the third contains a forward looking calendar showing the listing's available nights and the price for each night. 
@@ -92,30 +89,48 @@ readRenviron("~/.Renviron")
 # Check to see that the expected key is output in your R console
 Sys.getenv("CENSUS_KEY")
 ```
+
 ### Census Variables
 Descriptions and codes of variables available in the ACS 5 year dataset located here: https://www.socialexplorer.com/data/ACS2019_5yr/metadata/?ds=ACS19_5yr
 ```{r}
-
 locationName <- "NAME"
 totalPop <- "B01003_001E" #Census table for total population
-rentAsPctInc <- "B25070_001E" #Gross Rent As A Percentage Of Household Income In The Past 12 Months
+#rentAsPctInc <- "B25070_001E" #Gross Rent As A Percentage Of Household Income In The Past 12 Months
 rentAsPctInc <- "B25071_001E" #	Median Gross Rent As A Percentage Of Household Income In The Past 12 Months (Dollars)
 rawRent <-"B25056_001E" #Contract Rent
+education <- "B15003_001E" #Educational Attainment For The Population 25 Years And Over [25]
+
+censusVars <- c(locationName,totalPop,education,rawRent,rentAsPctInc)
+
 ```
 
-
-This is an example which saves the tract level population data and some rent data for Washington state tracts. 
+### Selecting States
+Getting list of all states to pull census data for, based off of states used in Airbnb data. 
 ```{r}
-name <- "acs/acs5"
+setwd("C:/Users/Leo/Desktop/CMC/Senior Year/Fall 2021/SeniorThesis/OtherData/")
+fipsCrosswalk <- read.csv("State_Fips_Codes.csv",colClasses = c(State_FIPS = "character"))
+includedStates <- c("North Carolina","Texas","Massachusetts","Illinois","Ohio","Colorado","New Jersey","California","Tennessee","Louisiana","New York","Oregon","Washington","Minnesota","District of Columbia", "Virginia", "Maryland")
+includedStates <- data.frame(includedStates,TRUE)
+includedStates <-right_join(x = fipsCrosswalk,y = includedStates, by = c("State_Name" = "includedStates"))
+includedStates <- subset(includedStates,select = c("State_Name","State_FIPS"))
+```
+### Pulling Data from Census API
+Compiling Census Data for all tracts within the States included in the AirBnB data
+```{r, cache=TRUE}
+nameACS <- "acs/acs5"
 vintage <- 2019
 region <- "tract:*"
 regionin <- "state:53+county:*"
 testVars <- c(locationName,totalPop, rawRent, rentAsPctInc)
-testdata <- getCensus(name = name,vintage = vintage, vars = testVars, regionin = regionin, region = region)
-```
+testdata <- getCensus(name = nameACS,vintage = vintage, vars = testVars, regionin = regionin, region = region)
 
-Compiling Census Data for all tracts within the MSAs included in the AirBnB data
-```{r}
+censusData <- data.frame()
+for (fipsCode in includedStates$State_FIPS) {
+  state = paste("state:",fipsCode,"+county:*",sep = "")
+  print(paste("Now pulling census data for Geography:",state))
+  stateData <- getCensus(name = nameACS,vintage = vintage, vars = censusVars, regionin = state, region = region)
+  censusData <- rbind(censusData,stateData)
+}
 
 ```
 

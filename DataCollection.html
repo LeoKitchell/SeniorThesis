@@ -11,7 +11,6 @@
 
 <meta name="author" content="Leo Kitchell" />
 
-<meta name="date" content="2021-10-29" />
 
 <title>DataCollection</title>
 
@@ -167,7 +166,7 @@ pre code {
 
 <h1 class="title toc-ignore">DataCollection</h1>
 <h4 class="author">Leo Kitchell</h4>
-<h4 class="date">10/29/2021</h4>
+<h4 class="date">11/3/2021</h4>
 
 </div>
 
@@ -243,17 +242,40 @@ Sys.getenv(&quot;CENSUS_KEY&quot;)</code></pre>
 <p>Descriptions and codes of variables available in the ACS 5 year dataset located here: <a href="https://www.socialexplorer.com/data/ACS2019_5yr/metadata/?ds=ACS19_5yr" class="uri">https://www.socialexplorer.com/data/ACS2019_5yr/metadata/?ds=ACS19_5yr</a></p>
 <pre class="r"><code>locationName &lt;- &quot;NAME&quot;
 totalPop &lt;- &quot;B01003_001E&quot; #Census table for total population
-rentAsPctInc &lt;- &quot;B25070_001E&quot; #Gross Rent As A Percentage Of Household Income In The Past 12 Months
+#rentAsPctInc &lt;- &quot;B25070_001E&quot; #Gross Rent As A Percentage Of Household Income In The Past 12 Months
 rentAsPctInc &lt;- &quot;B25071_001E&quot; # Median Gross Rent As A Percentage Of Household Income In The Past 12 Months (Dollars)
-rawRent &lt;-&quot;B25056_001E&quot; #Contract Rent</code></pre>
-<p>This is an example which saves the tract level population data and some rent data for Washington state tracts.</p>
-<pre class="r"><code>name &lt;- &quot;acs/acs5&quot;
+rawRent &lt;-&quot;B25056_001E&quot; #Contract Rent
+education &lt;- &quot;B15003_001E&quot; #Educational Attainment For The Population 25 Years And Over [25]
+
+censusVars &lt;- c(locationName,totalPop,education,rawRent,rentAsPctInc)</code></pre>
+</div>
+<div id="selecting-states" class="section level3">
+<h3>Selecting States</h3>
+<p>Getting list of all states to pull census data for, based off of states used in Airbnb data.</p>
+<pre class="r"><code>setwd(&quot;C:/Users/Leo/Desktop/CMC/Senior Year/Fall 2021/SeniorThesis/OtherData/&quot;)
+fipsCrosswalk &lt;- read.csv(&quot;State_Fips_Codes.csv&quot;,colClasses = c(State_FIPS = &quot;character&quot;))
+includedStates &lt;- c(&quot;North Carolina&quot;,&quot;Texas&quot;,&quot;Massachusetts&quot;,&quot;Illinois&quot;,&quot;Ohio&quot;,&quot;Colorado&quot;,&quot;New Jersey&quot;,&quot;California&quot;,&quot;Tennessee&quot;,&quot;Louisiana&quot;,&quot;New York&quot;,&quot;Oregon&quot;,&quot;Washington&quot;,&quot;Minnesota&quot;,&quot;District of Columbia&quot;, &quot;Virginia&quot;, &quot;Maryland&quot;)
+includedStates &lt;- data.frame(includedStates,TRUE)
+includedStates &lt;-right_join(x = fipsCrosswalk,y = includedStates, by = c(&quot;State_Name&quot; = &quot;includedStates&quot;))
+includedStates &lt;- subset(includedStates,select = c(&quot;State_Name&quot;,&quot;State_FIPS&quot;))</code></pre>
+</div>
+<div id="pulling-data-from-census-api" class="section level3">
+<h3>Pulling Data from Census API</h3>
+<p>Compiling Census Data for all tracts within the States included in the AirBnB data</p>
+<pre class="r"><code>nameACS &lt;- &quot;acs/acs5&quot;
 vintage &lt;- 2019
 region &lt;- &quot;tract:*&quot;
 regionin &lt;- &quot;state:53+county:*&quot;
 testVars &lt;- c(locationName,totalPop, rawRent, rentAsPctInc)
-testdata &lt;- getCensus(name = name,vintage = vintage, vars = testVars, regionin = regionin, region = region)</code></pre>
-<p>Compiling Census Data for all tracts within the MSAs included in the AirBnB data</p>
+testdata &lt;- getCensus(name = nameACS,vintage = vintage, vars = testVars, regionin = regionin, region = region)
+
+censusData &lt;- data.frame()
+for (fipsCode in includedStates$State_FIPS) {
+  state = paste(&quot;state:&quot;,fipsCode,&quot;+county:*&quot;,sep = &quot;&quot;)
+  print(paste(&quot;Now pulling census data for Geography:&quot;,state))
+  stateData &lt;- getCensus(name = nameACS,vintage = vintage, vars = censusVars, regionin = state, region = region)
+  censusData &lt;- rbind(censusData,stateData)
+}</code></pre>
 </div>
 </div>
 </div>
