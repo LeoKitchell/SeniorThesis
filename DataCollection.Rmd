@@ -18,11 +18,15 @@ The purpose of this document is to gather data from different sources for my sen
 #install.packages("censusapi")
 #install.packages("quanteda")
 #install.packages("stopwords")
+#install.packages("httr")
+#install.packages("jsonlite")
 library(stopwords)
 library(quanteda)
 library(censusapi)
 library(stringr)
 library(dplyr)
+library(httr)
+library(jsonlite)
 ```
 
 # Airbnb Data
@@ -49,6 +53,9 @@ for (variable in file_list) {
     print("Error in stacking Airbnb data.")
   }
 }
+listing_data <-listing_data[-1,] #removes first blank row.
+review_data  <-review_data[-1,]
+
 ```
 
 ## Cleaning Airbnb Review Words
@@ -100,6 +107,7 @@ rentAsPctInc <- "B25071_001E" #	Median Gross Rent As A Percentage Of Household I
 rawRent <-"B25056_001E" #Contract Rent
 education <- "B15003_001E" #Educational Attainment For The Population 25 Years And Over [25]
 
+
 censusVars <- c(locationName,totalPop,education,rawRent,rentAsPctInc)
 
 ```
@@ -118,19 +126,69 @@ includedStates <- subset(includedStates,select = c("State_Name","State_FIPS"))
 Compiling Census Data for all tracts within the States included in the AirBnB data
 ```{r, cache=TRUE}
 nameACS <- "acs/acs5"
-vintage <- 2019
+vintage <- c(2014,2019)
 region <- "tract:*"
-regionin <- "state:53+county:*"
-testVars <- c(locationName,totalPop, rawRent, rentAsPctInc)
-testdata <- getCensus(name = nameACS,vintage = vintage, vars = testVars, regionin = regionin, region = region)
 
 censusData <- data.frame()
-for (fipsCode in includedStates$State_FIPS) {
-  state = paste("state:",fipsCode,"+county:*",sep = "")
-  print(paste("Now pulling census data for Geography:",state))
-  stateData <- getCensus(name = nameACS,vintage = vintage, vars = censusVars, regionin = state, region = region)
-  censusData <- rbind(censusData,stateData)
+for (year in vintage) {
+  for (fipsCode in includedStates$State_FIPS) {
+    state = paste("state:",fipsCode,"+county:*",sep = "")
+    print(paste("Now pulling census data for Geography:",state," from vintage:",year))
+    stateData <- getCensus(name = nameACS,vintage = year, vars = censusVars, regionin = state, region = region)
+    stateData$vintage <- year
+    censusData <- rbind(censusData,stateData)
+  }
 }
 
+#When I run my conversion I'll have a mapping from one airbnb to a block. I'll have two observations, one in 2010 block and one in 2000 block. That #way I know which 2000 and 2010 tracts its in. 
+#Condition on all the observations that have no change in the tract from 2000 to 2010.
+
+#Order of Operations
+#Code the maplinks from lat and longitude to blocks and tracts
+#Pin down gentrification metric
+#Pin down explanatory variables
+  #Controls: population growth. Avg airbnb rating. Location rating on airbnb. 
+  # Run a specification with fixed effects and not
+  # A decision tree will rank which variables are most important
+
+#TFIDF? Term frequency inverse document frequency. R should have built in function. It normalizes word frequency. 
+#Monday Nov 15th send a rought draft to Gelman. 
+
 ```
+Mapping latitude to blocks and tracts. Predicted to take ~200 minutes per vintage. 
+```{r, cache=TRUE}
+
+#listing_data$fullFIPS2000<- ""
+#listing_data$tractFIPS2000 <- ""
+#listing_data$fullFIPS2010<- ""
+#listing_data$tractFIPS2010 <- ""
+
+#vintage <- c(2000,2010)
+
+start_time <- Sys.time()
+
+#for (year in vintage) {
+  for (listing in 124000:nrow(listing_data[])) {
+  lat = listing_data$latitude[listing]
+    long = listing_data$longitude[listing]
+    url <- paste("https://geo.fcc.gov/api/census/block/find?latitude=",lat,"&longitude=",long,"&censusYear=",2000,"&format=json",sep = "")
+    response = GET(url)
+    blockData <- response$content%>%rawToChar()%>%fromJSON()
+    
+    if(is.null(blockData$Block$FIPS)){
+        listing_data$fullFIPS2000[listing]<-NA
+        listing_data$tractFIPS2000[listing]<-NA
+    }else{
+        listing_data$fullFIPS2000[listing] <- blockData$Block$FIPS
+        listing_data$tractFIPS2000[listing] <- substr(listing_data$fullFIPS2000[listing],1,11)
+    }
+    if(listing%%1000==0) {
+      print(paste(listing,"listings geolocated"))
+    }
+  }
+end_time <- Sys.time()
+end_time - start_time
+#}
+```
+
 
