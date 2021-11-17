@@ -13,7 +13,12 @@ knitr::opts_chunk$set(
 ## Purpose
 The purpose of this document is to gather data from different sources for my senior thesis. This includes pulling ACS 5 Year data from the census using their API, combining the data from InsideAirbnb, and compiling all other data needed to create my measure of gentrification
 
+```{r}
+runtime <- list() #creating a list to track how long each code chunk takes to run on my machine
+```
+
 ```{r, include=FALSE}
+runtime$packagesAndLibraries<-Sys.time()
 #Installing relevant packages
 #install.packages("censusapi")
 #install.packages("quanteda")
@@ -27,6 +32,7 @@ library(stringr)
 library(dplyr)
 library(httr)
 library(jsonlite)
+runtime$packagesAndLibraries<-Sys.time()-runtime$packagesAndLibraries
 ```
 
 # Airbnb Data
@@ -35,6 +41,7 @@ Data has been downloaded from InsideAirbnb for 28 US cities. These data are comp
 ## Stacking Data
 Using rbind to stack airbnb data from each filetype (Listings, Calendar, and Reviews) into three dataframes. 
 ```{r, cache=TRUE}
+runtime$stackingData <- Sys.time()
 path = "C:/Users/Leo/Desktop/CMC/Senior Year/Fall 2021/SeniorThesis/InsideAirbnbData/Zipped_Data/"
 file_list = list.files(path = path,'*.csv')
 
@@ -44,24 +51,26 @@ review_data <- array()
 
 for (variable in file_list) {
   if(grepl("listings",variable,fixed=TRUE)){
-    listing_data <- rbind(listing_data,read.csv(paste(path,variable,sep = "")))
+      listing_data <- rbind(listing_data,read.csv(paste(path,variable,sep = "")))
   } else if (grepl("calendar",variable,fixed=TRUE)){
-     #calendar_data <- rbind(calendar_data,read.csv(paste(path,variable,sep = "")))#commenting this out because the calendar data takes a long time to R bind. 
+      #calendar_data <- rbind(calendar_data,read.csv(paste(path,variable,sep = "")))#commenting this out because the calendar data takes a long time to R bind and isn't used. 
   } else if (grepl("reviews",variable,fixed=TRUE)){
-    review_data <- rbind(review_data,read.csv(paste(path,variable,sep = "")))
+      review_data <- rbind(review_data,read.csv(paste(path,variable,sep = "")))
   } else{
-    print("Error in stacking Airbnb data.")
+      print("Error in stacking Airbnb data.")
   }
 }
-listing_data <-listing_data[-1,] #removes first blank row.
-review_data  <-review_data[-1,]
+listing_data <- listing_data %>% filter(!is.na(id)) #removes rows with NA listing IDs. 
+review_data <- review_data %>% filter(!is.na(id)) #removes rows with NA listing IDs. 
 
+runtime$stackingData <- Sys.time()- runtime$stackingData 
 ```
 
 ## Cleaning Airbnb Review Words
 
 ### Remove text formatting
 ```{r}
+runtime$removeTextFormatting <- Sys.time()
 #create new column that will become the cleaned review data
 review_data$clean_reviews <- review_data$comments
 
@@ -73,12 +82,19 @@ review_data$clean_reviews <- str_replace_all(review_data$clean_reviews,'<br/>', 
 
 #Remove punctuation marks
 review_data$clean_reviews <- str_replace_all(review_data$clean_reviews, "[[:punct:]]", " ") 
+runtime$removeTextFormatting <- Sys.time() - runtime$removeTextFormatting
+```
 
-#Remove Stopwords
+### Remove Stopwords
+```{r}
 stopwords = stopwords(language = "en", source = "snowball")
 ##TO DO: remove stopwords 
 ```
 
+### Stemming
+```{r}
+
+```
 
 
 # Gentrification Data
@@ -155,10 +171,12 @@ for (year in vintage) {
 #Monday Nov 15th send a rought draft to Gelman. 
 
 ```
-Mapping latitude to blocks and tracts. Predicted to take ~200 minutes per vintage. 
-```{r, cache=TRUE}
 
-#listing_data$fullFIPS2000<- ""
+## Geocoding Airbnb Listings
+Mapping latitude to blocks and tracts. Predicted to take ~200 minutes per vintage. 
+```{r, cache=TRUE, eval=FALSE}
+
+#listing_data$fullFIPS2000<- "" #creating empty columns to be populated by the loop below
 #listing_data$tractFIPS2000 <- ""
 #listing_data$fullFIPS2010<- ""
 #listing_data$tractFIPS2010 <- ""
@@ -168,27 +186,50 @@ Mapping latitude to blocks and tracts. Predicted to take ~200 minutes per vintag
 start_time <- Sys.time()
 
 #for (year in vintage) {
-  for (listing in 124000:nrow(listing_data[])) {
+  for (listing in 1:nrow(listing_data[1:149276,])) {
   lat = listing_data$latitude[listing]
     long = listing_data$longitude[listing]
-    url <- paste("https://geo.fcc.gov/api/census/block/find?latitude=",lat,"&longitude=",long,"&censusYear=",2000,"&format=json",sep = "")
+    url <- paste("https://geo.fcc.gov/api/census/block/find?latitude=",lat,"&longitude=",long,"&censusYear=",2010,"&format=json",sep = "")
     response = GET(url)
     blockData <- response$content%>%rawToChar()%>%fromJSON()
     
     if(is.null(blockData$Block$FIPS)){
-        listing_data$fullFIPS2000[listing]<-NA
-        listing_data$tractFIPS2000[listing]<-NA
+        listing_data$fullFIPS2010[listing]<-NA
+        listing_data$tractFIPS2010[listing]<-NA
     }else{
-        listing_data$fullFIPS2000[listing] <- blockData$Block$FIPS
-        listing_data$tractFIPS2000[listing] <- substr(listing_data$fullFIPS2000[listing],1,11)
+        listing_data$fullFIPS2010[listing] <- blockData$Block$FIPS
+        listing_data$tractFIPS2010[listing] <- substr(listing_data$fullFIPS2010[listing],1,11)
     }
     if(listing%%1000==0) {
       print(paste(listing,"listings geolocated"))
     }
+    #if(listing%%20000==0){
+    #  write.csv(listing_data,file = "listing_data_11_4.csv",row.names = FALSE)
+    #}
   }
 end_time <- Sys.time()
 end_time - start_time
 #}
+
+write.csv(listing_data,file = "listing_data_11_4.csv",row.names = FALSE)
+```
+
+```{r}
+listing_data <- subset(read.csv(file = "listing_data_11_4_AM.csv"),select = -c(X))
+
+
+
+filter(censusData,censusData$B25071_001E<-100)
+censusData %>% filter(B25071_001E<0) %>% count(vintage==2019)
+names(censusData)
+```
+
+```{r}
+apis <- listCensusApis()
+View(apis)
+path = "C:\Users\Leo\Desktop\LOWE Institute\Airbnb_Migration"
+msaCrosswalk <- read.csv()
+
 ```
 
 
