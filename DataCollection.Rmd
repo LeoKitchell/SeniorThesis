@@ -30,6 +30,7 @@ library(quanteda)
 library(censusapi)
 library(stringr)
 library(dplyr)
+library(tidyr)
 library(httr)
 library(jsonlite)
 runtime$packagesAndLibraries<-Sys.time()-runtime$packagesAndLibraries
@@ -39,7 +40,7 @@ runtime$packagesAndLibraries<-Sys.time()-runtime$packagesAndLibraries
 Data has been downloaded from InsideAirbnb for 28 US cities. These data are composed of 3 files for each city. The first file includes every listing within the metropolitan area, a second file contains every review for each listing, and the third contains a forward looking calendar showing the listing's available nights and the price for each night. 
 
 ## Stacking Data
-Using rbind to stack airbnb data from each filetype (Listings, Calendar, and Reviews) into three dataframes. 
+Using rbind to stack airbnb data from each filetype (Listings, Calendar, and Reviews) into three dataframes.
 ```{r, cache=TRUE}
 runtime$stackingData <- Sys.time()
 path = "C:/Users/Leo/Desktop/CMC/Senior Year/Fall 2021/SeniorThesis/InsideAirbnbData/Zipped_Data/"
@@ -62,6 +63,9 @@ for (variable in file_list) {
 }
 listing_data <- listing_data %>% filter(!is.na(id)) #removes rows with NA listing IDs. 
 review_data <- review_data %>% filter(!is.na(id)) #removes rows with NA listing IDs. 
+
+listing_data$stateAndCountyFIPS2000 <- substr(listing_data$tractFIPS2000,1,5)  #creating a variable for the state and county fips from the tract fips code so that census data can be can be merged
+listing_data$stateAndCountyFIPS2010 <- substr(listing_data$tractFIPS2010,1,5)
 
 runtime$stackingData <- Sys.time()- runtime$stackingData 
 ```
@@ -93,97 +97,24 @@ stopwords = stopwords(language = "en", source = "snowball")
 
 ### Stemming
 ```{r}
+runtime$stemming <- Sys.time()
 
+runtime$stemming <- Sys.time() - runtime$stemming
 ```
 
 
 # Gentrification Data
-The specification of gentrification which will be used in this project is heavily inspired by the work of Freeman (2005) and Bates (2013). To compose our gentrification measure we will use Census tract level data on median household income, college attainment, median home value, and percent of the population that is white.
-
-## Census Data
-
-### Setup Census API key to pull data.
-```{r}
-# Add key to .Renviron
-key = "be936e1698dd7dfd657546a6a7088c6306f4e54f"
-Sys.setenv(CENSUS_KEY= key)
-# Reload .Renviron
-readRenviron("~/.Renviron")
-# Check to see that the expected key is output in your R console
-Sys.getenv("CENSUS_KEY")
-```
-
-### Census Variables
-Descriptions and codes of variables available in the ACS 5 year dataset located here: https://www.socialexplorer.com/data/ACS2019_5yr/metadata/?ds=ACS19_5yr
-```{r}
-locationName <- "NAME"
-totalPop <- "B01003_001E" #Census table for total population
-#rentAsPctInc <- "B25070_001E" #Gross Rent As A Percentage Of Household Income In The Past 12 Months
-rentAsPctInc <- "B25071_001E" #	Median Gross Rent As A Percentage Of Household Income In The Past 12 Months (Dollars)
-rawRent <-"B25056_001E" #Contract Rent
-education <- "B15003_001E" #Educational Attainment For The Population 25 Years And Over [25]
-
-
-censusVars <- c(locationName,totalPop,education,rawRent,rentAsPctInc)
-
-```
-
-### Selecting States
-Getting list of all states to pull census data for, based off of states used in Airbnb data. 
-```{r}
-setwd("C:/Users/Leo/Desktop/CMC/Senior Year/Fall 2021/SeniorThesis/OtherData/")
-fipsCrosswalk <- read.csv("State_Fips_Codes.csv",colClasses = c(State_FIPS = "character"))
-includedStates <- c("North Carolina","Texas","Massachusetts","Illinois","Ohio","Colorado","New Jersey","California","Tennessee","Louisiana","New York","Oregon","Washington","Minnesota","District of Columbia", "Virginia", "Maryland")
-includedStates <- data.frame(includedStates,TRUE)
-includedStates <-right_join(x = fipsCrosswalk,y = includedStates, by = c("State_Name" = "includedStates"))
-includedStates <- subset(includedStates,select = c("State_Name","State_FIPS"))
-```
-### Pulling Data from Census API
-Compiling Census Data for all tracts within the States included in the AirBnB data
-```{r, cache=TRUE}
-nameACS <- "acs/acs5"
-vintage <- c(2014,2019)
-region <- "tract:*"
-
-censusData <- data.frame()
-for (year in vintage) {
-  for (fipsCode in includedStates$State_FIPS) {
-    state = paste("state:",fipsCode,"+county:*",sep = "")
-    print(paste("Now pulling census data for Geography:",state," from vintage:",year))
-    stateData <- getCensus(name = nameACS,vintage = year, vars = censusVars, regionin = state, region = region)
-    stateData$vintage <- year
-    censusData <- rbind(censusData,stateData)
-  }
-}
-
-#When I run my conversion I'll have a mapping from one airbnb to a block. I'll have two observations, one in 2010 block and one in 2000 block. That #way I know which 2000 and 2010 tracts its in. 
-#Condition on all the observations that have no change in the tract from 2000 to 2010.
-
-#Order of Operations
-#Code the maplinks from lat and longitude to blocks and tracts
-#Pin down gentrification metric
-#Pin down explanatory variables
-  #Controls: population growth. Avg airbnb rating. Location rating on airbnb. 
-  # Run a specification with fixed effects and not
-  # A decision tree will rank which variables are most important
-
-#TFIDF? Term frequency inverse document frequency. R should have built in function. It normalizes word frequency. 
-#Monday Nov 15th send a rought draft to Gelman. 
-
-```
+The specification of gentrification which will be used in this project is heavily inspired by the work of Freeman (2005) and Bates (2013). To compose our gentrification measure we will use Census tract level data on median household income, educational attainment, and percentage of income spent on rent. **The rent measure may have to be changed to dollar amount spent on rent so that we don't get confonding from increased household income in the tract** 
 
 ## Geocoding Airbnb Listings
 Mapping latitude to blocks and tracts. Predicted to take ~200 minutes per vintage. 
 ```{r, cache=TRUE, eval=FALSE}
-
+runtime$geocodingAirbnbs <- Sys.time()
 #listing_data$fullFIPS2000<- "" #creating empty columns to be populated by the loop below
 #listing_data$tractFIPS2000 <- ""
 #listing_data$fullFIPS2010<- ""
 #listing_data$tractFIPS2010 <- ""
-
 #vintage <- c(2000,2010)
-
-start_time <- Sys.time()
 
 #for (year in vintage) {
   for (listing in 1:nrow(listing_data[1:149276,])) {
@@ -207,12 +138,144 @@ start_time <- Sys.time()
     #  write.csv(listing_data,file = "listing_data_11_4.csv",row.names = FALSE)
     #}
   }
-end_time <- Sys.time()
-end_time - start_time
 #}
-
 write.csv(listing_data,file = "listing_data_11_4.csv",row.names = FALSE)
+runtime$geocodingAirbnbs <- Sys.time() - runtime$geocodingAirbnbs
 ```
+
+
+## Census Data
+
+### Setup Census API key to pull data.
+```{r}
+# Add key to .Renviron
+key = "be936e1698dd7dfd657546a6a7088c6306f4e54f"
+Sys.setenv(CENSUS_KEY= key)
+# Reload .Renviron
+readRenviron("~/.Renviron")
+# Check to see that the expected key is output in your R console
+Sys.getenv("CENSUS_KEY")
+```
+
+### Census Variables
+Descriptions and codes of variables available in the ACS 5 year dataset located here: https://www.socialexplorer.com/data/ACS2019_5yr/metadata/?ds=ACS19_5yr
+```{r}
+#Control Variables
+locationName <- "NAME"    #Census geography name
+totalPop <- "B01003_001E" #Census table for total population
+
+#Gentrification Variables
+medHHInc <- "B19013_001E" #Median household income in inflation adjusted dollars of VINTAGE year (e.g. 2014, 2019).
+medRentAsPctInc <- "B25071_001E" #	Median Gross Rent As A Percentage Of Household Income In The Past 12 Months (Dollars)
+
+  #Education Variables
+  educationPop <- "B15003_001E" #Number of respondents 25 Years and Over who responded to education portion of survey
+  bachelorsPop <- "B15003_022E" #Number of respondents 25 Years and Over with a bachelors degree
+  mastersPop <-   "B15003_023E" #Number of respondents 25 Years and Over with a masters degree
+  professionalPop <-"B15003_024E" #Number of respondents 25 Years and Over with a professional degree
+  doctoratePop <-"B15003_025E" #Number of respondents 25 Years and Over with a doctorate degree
+  educationVars <- c(educationPop,bachelorsPop,mastersPop,professionalPop,doctoratePop)
+
+#Other Variables Considered
+  #rentGrossAsPctInc <- "B25070_001E" #Gross Rent As A Percentage Of Household Income In The Past 12 Months
+  #rawRent <-"B25056_001E" #Contract Rent
+  #medGrossRent <- "B25064_001E" #Median Gross Rent (Dollars)
+
+censusVars <- c(locationName,totalPop,medHHInc,medRentAsPctInc, educationVars )
+```
+
+### Selecting States
+Getting list of all states to pull census data for, based off of states used in Airbnb data. 
+```{r}
+setwd("./OtherData/")
+
+fipsCrosswalk <- read.csv("State_Fips_Codes.csv",colClasses = c(State_FIPS = "character"))
+includedStates <- c("North Carolina","Texas","Massachusetts","Illinois","Ohio","Colorado","New Jersey","California","Tennessee","Louisiana","New York","Oregon","Washington","Minnesota","District of Columbia", "Virginia", "Maryland")
+includedStates <- data.frame(includedStates,TRUE)
+includedStates <-right_join(x = fipsCrosswalk,y = includedStates, by = c("State_Name" = "includedStates"))
+includedStates <- subset(includedStates,select = c("State_Name","State_FIPS"))
+```
+
+
+### Pulling Data from Census API
+Compiling Census Data for all tracts within the States included in the AirBnB data
+```{r, cache=TRUE}
+listing_data$state <- substr(listing_data$stateAndCountyFIPS2010,1,2)
+includedState <- listing_data %>% group_by(listing_data$state) %>% summarize() %>% drop_na()
+names(includedState)<-"state_FIPS"
+
+nameACS <- "acs/acs5"
+vintage <- c(2014,2019)
+region <- "tract:*"
+
+censusDataRaw <- data.frame()
+for (year in vintage) {
+  for (fipsCode in includedState$state_FIPS) {
+    state = paste("state:",fipsCode,"+county:*",sep = "")
+    print(paste("Now pulling census data for Geography:",state," from vintage:",year))
+    stateData <- getCensus(name = nameACS,vintage = year, vars = censusVars, regionin = state, region = region)
+    stateData$vintage <- year
+    censusDataRaw <- rbind(censusDataRaw,stateData)
+  }
+}
+censusData <- censusDataRaw %>% mutate(tractFIPS = paste(state,county,tract,sep = ""), stateAndCountyFIPS = paste(state,county,sep = ""))
+censusData <- semi_join(censusData,listing_data, by = c("tractFIPS"="tractFIPS2010"))
+```
+
+### Selecting MSAs
+Filtering `r censusData` to tracts contained within MSAs.
+```{r}
+setwd("./OtherData")
+cbsasRaw <- read.csv("CBSAs_March_2020.csv",header = TRUE,colClasses=c("FIPS.State.Code"="character","FIPS.County.Code"="character"))  #Census delineation file downloaded from "https://www.census.gov/geographies/reference-files/time-series/demo/metro-micro/delineation-files.html" with first two rows deleted and saved as csv.
+cbsas <- cbsasRaw %>% subset(select=c("CBSA.Title","CBSA.Code","Metropolitan.Micropolitan.Statistical.Area","FIPS.State.Code","FIPS.County.Code")) %>% mutate(FIPS.State.And.County.Code = paste(FIPS.State.Code,FIPS.County.Code,sep = ""))
+
+censusData<- semi_join(censusData,cbsas,by = c("stateAndCountyFIPS"="FIPS.State.And.County.Code"))  #removes all census data from outside of MSAs. 
+includedMSAs <- semi_join(cbsas, censusData,by = c("FIPS.State.And.County.Code"="stateAndCountyFIPS"))  
+```
+
+## Creating Education Variable, Renaming Gentrification Variables to be Informative
+```{r}
+censusData$pctBachelorsOrHigher <- ((censusData$B15003_022E+censusData$B15003_023E+censusData$B15003_024E+censusData$B15003_025E)/censusData$B15003_001E)
+hist(censusData$pctBachelorsOrHigher)
+censusData%>%filter(medHHInc>0)%>%hist(medHHInc)
+hist(censusData$medHHInc)
+censusData <- rename(.data = censusData,"totalPop"=totalPop,"medHHInc"=medHHInc,"medRentAsPctInc"=medRentAsPctInc)
+
+
+#do this portion on a loop for the year and for the city.
+## potentially use dplyr do. 
+##groupby year, city. Then the "do" command will run a function.  
+
+for (year in vintage) {
+  for (city in censusData$CBSA) {
+    
+  }
+  
+}
+
+educDist <-ecdf(censusData$pctBachelorsOrHigher)
+incDist <- ecdf(censusData$medHHInc)
+rentDist <- ecdf(censusData$medRentAsPctInc)
+
+censusData$pctileBachelorsOrHigher<- educDist(censusData$pctBachelorsOrHigher)
+censusData$pctilemedHHInc <- incDist(censusData$medHHInc)
+censusData$pctilemedRentAsPctInc <- rentDist(censusData$medRentAsPctInc)
+
+
+censusDataChange <- 
+census
+
+```
+
+### Identifying tracts which changed between 2000 and 2010
+Not necessary for current process
+```{r}
+listing_data$stateAndCountyFIPSChange <- listing_data$stateAndCountyFIPS2000!=listing_data$stateAndCountyFIPS2010 #identifying tracts which changed between 2000 and 2010
+listing_data %>% filter(listing_data,stateAndCountyFIPSChange==TRUE) %>% table(listing_data$stateAndCountyFIPS2000) #not sure why this works and the code below does
+editedListingData <- filter(listing_data,stateAndCountyFIPSChange==TRUE)
+table(editedListingData$stateAndCountyFIPS2010,editedListingData$stateAndCountyFIPS2000)
+```
+
 
 ```{r}
 listing_data <- subset(read.csv(file = "listing_data_11_4_AM.csv"),select = -c(X))
@@ -231,5 +294,35 @@ path = "C:\Users\Leo\Desktop\LOWE Institute\Airbnb_Migration"
 msaCrosswalk <- read.csv()
 
 ```
+# Homework
+Have gentrification method for each block
+map and look at what the gentrification distribution looks like by Friday. Have mapped for 5 cities. IF possible have for 28 cities. Push to github.
+
+Pick a time window. Skim through past papers and figure out 
+Calculate min and max of reviews time date. If the first dates are 
+
+Think about the X variables. Airbnb review data, airbnb text data, number of airbnbs, population. 
+
+Restrict review data to be within the range 2015-2019. 
+
+
+```{r}
+#When I run my conversion I'll have a mapping from one airbnb to a block. I'll have two observations, one in 2010 block and one in 2000 block. That #way I know which 2000 and 2010 tracts its in. 
+#Condition on all the observations that have no change in the tract from 2000 to 2010.
+
+#Order of Operations
+#Code the maplinks from lat and longitude to blocks and tracts
+#Pin down gentrification metric
+#Pin down explanatory variables
+  #Controls: population growth. Avg airbnb rating. Location rating on airbnb. 
+  # Run a specification with fixed effects and not
+  # A decision tree will rank which variables are most important
+
+#TFIDF? Term frequency inverse document frequency. R should have built in function. It normalizes word frequency. 
+#Monday Nov 15th send a rought draft to Gelman. 
+```
+
+
+
 
 
