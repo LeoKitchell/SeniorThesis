@@ -232,15 +232,18 @@ censusData <- rename(.data = censusData,"totalPop"=totalPop,"medHHInc"=medHHInc,
 censusData <- inner_join(censusData,includedMSAs,c("stateAndCountyFIPS"="FIPS.State.And.County.Code"))
 censusData <- subset(censusData,select = -c(Metropolitan.Micropolitan.Statistical.Area,FIPS.State.Code,FIPS.County.Code))
 
+censusData <-censusData %>% mutate(across(where(is.double),~na_if(.,-666666666)))   #replaces all instances of -666666666	with "NA"
+
 #do this portion on a loop for the year and for the city.
 ## potentially use dplyr do. 
 ##groupby year, city. Then the "do" command will run a function.  
 vintage <- c(2014,2019)
 
-
+uniqueMSAs <- distinct(includedMSAs,CBSA.Code)
+names(uniqueMSAs)
 censusDataWithDistributions <- data.frame()
 for (year in vintage) {
-  for (city in includedMSAs$CBSA.Code) {
+  for (city in uniqueMSAs$CBSA.Code) {
     cityCensusData <- censusData %>% filter(vintage==year,CBSA.Code==city)
     educDist <- ecdf(cityCensusData$pctBachelorsOrHigher)
     cityCensusData$pctileBachelorsOrHigher <- educDist(cityCensusData$pctBachelorsOrHigher)
@@ -254,6 +257,15 @@ for (year in vintage) {
   }
 }
 
+#testing to see if the code worked
+a<- censusDataWithDistributions %>% filter(vintage==year,CBSA.Code==city) %>% subset(select=c("tract","NAME","medHHInc","CBSA.Code","pctilemedHHInc"))
+testDist <- ecdf(a$medHHInc)
+head(a)
+hist(a$medHHInc)
+testDist(86000)
+hist(censusData$medRentAsPctInc)
+hist(censusData$medHHInc)
+filter(censusData,medHHInc<20000,vintage==2019,state==53)
 hist(censusData$B19013_001E) #negative vals
 hist(censusData$B25071_001E) #negative vals
 hist(censusData$B25064_001E) #negative vals
