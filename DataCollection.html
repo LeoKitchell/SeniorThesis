@@ -174,6 +174,8 @@ pre code {
 <div id="purpose" class="section level2">
 <h2>Purpose</h2>
 <p>The purpose of this document is to gather data from different sources for my senior thesis. This includes pulling ACS 5 Year data from the census using their API, combining the data from InsideAirbnb, and compiling all other data needed to create my measure of gentrification</p>
+<pre class="r"><code>runtime &lt;- list() #creating a list to track how long each code chunk takes to run on my machine</code></pre>
+<pre class="r"><code>listing_data &lt;- subset(read.csv(file = &quot;listing_data_11_4_AM.csv&quot;),select = -c(X))</code></pre>
 </div>
 <div id="airbnb-data" class="section level1">
 <h1>Airbnb Data</h1>
@@ -181,7 +183,8 @@ pre code {
 <div id="stacking-data" class="section level2">
 <h2>Stacking Data</h2>
 <p>Using rbind to stack airbnb data from each filetype (Listings, Calendar, and Reviews) into three dataframes.</p>
-<pre class="r"><code>path = &quot;C:/Users/Leo/Desktop/CMC/Senior Year/Fall 2021/SeniorThesis/InsideAirbnbData/Zipped_Data/&quot;
+<pre class="r"><code>runtime$stackingData &lt;- Sys.time()
+path = &quot;C:/Users/Leo/Desktop/CMC/Senior Year/Fall 2021/SeniorThesis/InsideAirbnbData/Zipped_Data/&quot;
 file_list = list.files(path = path,&#39;*.csv&#39;)
 
 listing_data &lt;- array()
@@ -190,21 +193,29 @@ review_data &lt;- array()
 
 for (variable in file_list) {
   if(grepl(&quot;listings&quot;,variable,fixed=TRUE)){
-    listing_data &lt;- rbind(listing_data,read.csv(paste(path,variable,sep = &quot;&quot;)))
+      listing_data &lt;- rbind(listing_data,read.csv(paste(path,variable,sep = &quot;&quot;)))
   } else if (grepl(&quot;calendar&quot;,variable,fixed=TRUE)){
-     #calendar_data &lt;- rbind(calendar_data,read.csv(paste(path,variable,sep = &quot;&quot;)))#commenting this out because the calendar data takes a long time to R bind. 
+      #calendar_data &lt;- rbind(calendar_data,read.csv(paste(path,variable,sep = &quot;&quot;)))#commenting this out because the calendar data takes a long time to R bind and isn&#39;t used. 
   } else if (grepl(&quot;reviews&quot;,variable,fixed=TRUE)){
-    review_data &lt;- rbind(review_data,read.csv(paste(path,variable,sep = &quot;&quot;)))
+      review_data &lt;- rbind(review_data,read.csv(paste(path,variable,sep = &quot;&quot;)))
   } else{
-    print(&quot;Error in stacking Airbnb data.&quot;)
+      print(&quot;Error in stacking Airbnb data.&quot;)
   }
-}</code></pre>
+}
+listing_data &lt;- listing_data %&gt;% filter(!is.na(id)) #removes rows with NA listing IDs. 
+review_data &lt;- review_data %&gt;% filter(!is.na(id)) #removes rows with NA listing IDs. 
+
+listing_data$stateAndCountyFIPS2000 &lt;- substr(listing_data$tractFIPS2000,1,5)  #creating a variable for the state and county fips from the tract fips code so that census data can be can be merged
+listing_data$stateAndCountyFIPS2010 &lt;- substr(listing_data$tractFIPS2010,1,5)
+
+runtime$stackingData &lt;- Sys.time()- runtime$stackingData </code></pre>
 </div>
 <div id="cleaning-airbnb-review-words" class="section level2">
 <h2>Cleaning Airbnb Review Words</h2>
 <div id="remove-text-formatting" class="section level3">
 <h3>Remove text formatting</h3>
-<pre class="r"><code>#create new column that will become the cleaned review data
+<pre class="r"><code>runtime$removeTextFormatting &lt;- Sys.time()
+#create new column that will become the cleaned review data
 review_data$clean_reviews &lt;- review_data$comments
 
 # Remove newlines, carriage returns, tabs, and breaks
@@ -215,16 +226,60 @@ review_data$clean_reviews &lt;- str_replace_all(review_data$clean_reviews,&#39;&
 
 #Remove punctuation marks
 review_data$clean_reviews &lt;- str_replace_all(review_data$clean_reviews, &quot;[[:punct:]]&quot;, &quot; &quot;) 
-
-#Remove Stopwords
-stopwords = stopwords(language = &quot;en&quot;, source = &quot;snowball&quot;)
+runtime$removeTextFormatting &lt;- Sys.time() - runtime$removeTextFormatting</code></pre>
+</div>
+<div id="remove-stopwords" class="section level3">
+<h3>Remove Stopwords</h3>
+<pre class="r"><code>stopwords = stopwords(language = &quot;en&quot;, source = &quot;snowball&quot;)
 ##TO DO: remove stopwords </code></pre>
+</div>
+<div id="stemming" class="section level3">
+<h3>Stemming</h3>
+<pre class="r"><code>runtime$stemming &lt;- Sys.time()
+
+runtime$stemming &lt;- Sys.time() - runtime$stemming</code></pre>
 </div>
 </div>
 </div>
 <div id="gentrification-data" class="section level1">
 <h1>Gentrification Data</h1>
-<p>The specification of gentrification which will be used in this project is heavily inspired by the work of Freeman (2005) and Bates (2013). To compose our gentrification measure we will use Census tract level data on median household income, college attainment, median home value, and percent of the population that is white.</p>
+<p>The specification of gentrification which will be used in this project is heavily inspired by the work of Freeman (2005) and Bates (2013). To compose our gentrification measure we will use Census tract level data on median household income, educational attainment, and percentage of income spent on rent. <strong>The rent measure may have to be changed to dollar amount spent on rent so that we don’t get confonding from increased household income in the tract</strong></p>
+<div id="geocoding-airbnb-listings" class="section level2">
+<h2>Geocoding Airbnb Listings</h2>
+<p>Mapping latitude to blocks and tracts. Predicted to take ~200 minutes per vintage.</p>
+<pre class="r"><code>runtime$geocodingAirbnbs &lt;- Sys.time()
+#listing_data$fullFIPS2000&lt;- &quot;&quot; #creating empty columns to be populated by the loop below
+#listing_data$tractFIPS2000 &lt;- &quot;&quot;
+#listing_data$fullFIPS2010&lt;- &quot;&quot;
+#listing_data$tractFIPS2010 &lt;- &quot;&quot;
+#vintage &lt;- c(2000,2010)
+
+#for (year in vintage) {
+  for (listing in 1:nrow(listing_data[1:149276,])) {
+  lat = listing_data$latitude[listing]
+    long = listing_data$longitude[listing]
+    url &lt;- paste(&quot;https://geo.fcc.gov/api/census/block/find?latitude=&quot;,lat,&quot;&amp;longitude=&quot;,long,&quot;&amp;censusYear=&quot;,2010,&quot;&amp;format=json&quot;,sep = &quot;&quot;)
+    response = GET(url)
+    blockData &lt;- response$content%&gt;%rawToChar()%&gt;%fromJSON()
+    
+    if(is.null(blockData$Block$FIPS)){
+        listing_data$fullFIPS2010[listing]&lt;-NA
+        listing_data$tractFIPS2010[listing]&lt;-NA
+    }else{
+        listing_data$fullFIPS2010[listing] &lt;- blockData$Block$FIPS
+        listing_data$tractFIPS2010[listing] &lt;- substr(listing_data$fullFIPS2010[listing],1,11)
+    }
+    if(listing%%1000==0) {
+      print(paste(listing,&quot;listings geolocated&quot;))
+    }
+    #if(listing%%20000==0){
+    #  write.csv(listing_data,file = &quot;listing_data_11_4.csv&quot;,row.names = FALSE)
+    #}
+  }
+#}
+write.csv(listing_data,file = &quot;listing_data_11_4.csv&quot;,row.names = FALSE)
+runtime$geocodingAirbnbs &lt;- Sys.time() - runtime$geocodingAirbnbs</code></pre>
+</div>
 <div id="census-data" class="section level2">
 <h2>Census Data</h2>
 <div id="setup-census-api-key-to-pull-data." class="section level3">
@@ -240,44 +295,128 @@ Sys.getenv(&quot;CENSUS_KEY&quot;)</code></pre>
 <div id="census-variables" class="section level3">
 <h3>Census Variables</h3>
 <p>Descriptions and codes of variables available in the ACS 5 year dataset located here: <a href="https://www.socialexplorer.com/data/ACS2019_5yr/metadata/?ds=ACS19_5yr" class="uri">https://www.socialexplorer.com/data/ACS2019_5yr/metadata/?ds=ACS19_5yr</a></p>
-<pre class="r"><code>locationName &lt;- &quot;NAME&quot;
+<pre class="r"><code>#Control Variables
+locationName &lt;- &quot;NAME&quot;    #Census geography name
 totalPop &lt;- &quot;B01003_001E&quot; #Census table for total population
-#rentAsPctInc &lt;- &quot;B25070_001E&quot; #Gross Rent As A Percentage Of Household Income In The Past 12 Months
-rentAsPctInc &lt;- &quot;B25071_001E&quot; # Median Gross Rent As A Percentage Of Household Income In The Past 12 Months (Dollars)
-rawRent &lt;-&quot;B25056_001E&quot; #Contract Rent
-education &lt;- &quot;B15003_001E&quot; #Educational Attainment For The Population 25 Years And Over [25]
 
-censusVars &lt;- c(locationName,totalPop,education,rawRent,rentAsPctInc)</code></pre>
-</div>
-<div id="selecting-states" class="section level3">
-<h3>Selecting States</h3>
-<p>Getting list of all states to pull census data for, based off of states used in Airbnb data.</p>
-<pre class="r"><code>setwd(&quot;C:/Users/Leo/Desktop/CMC/Senior Year/Fall 2021/SeniorThesis/OtherData/&quot;)
-fipsCrosswalk &lt;- read.csv(&quot;State_Fips_Codes.csv&quot;,colClasses = c(State_FIPS = &quot;character&quot;))
-includedStates &lt;- c(&quot;North Carolina&quot;,&quot;Texas&quot;,&quot;Massachusetts&quot;,&quot;Illinois&quot;,&quot;Ohio&quot;,&quot;Colorado&quot;,&quot;New Jersey&quot;,&quot;California&quot;,&quot;Tennessee&quot;,&quot;Louisiana&quot;,&quot;New York&quot;,&quot;Oregon&quot;,&quot;Washington&quot;,&quot;Minnesota&quot;,&quot;District of Columbia&quot;, &quot;Virginia&quot;, &quot;Maryland&quot;)
-includedStates &lt;- data.frame(includedStates,TRUE)
-includedStates &lt;-right_join(x = fipsCrosswalk,y = includedStates, by = c(&quot;State_Name&quot; = &quot;includedStates&quot;))
-includedStates &lt;- subset(includedStates,select = c(&quot;State_Name&quot;,&quot;State_FIPS&quot;))</code></pre>
+#Gentrification Variables
+medHHInc &lt;- &quot;B19013_001E&quot; #Median household income in inflation adjusted dollars of VINTAGE year (e.g. 2014, 2019).
+medRentAsPctInc &lt;- &quot;B25071_001E&quot; #  Median Gross Rent As A Percentage Of Household Income In The Past 12 Months (Dollars)
+rawRent &lt;-&quot;B25056_001E&quot; #Contract Rent
+medGrossRent &lt;- &quot;B25064_001E&quot; #Median Gross Rent (Dollars)
+
+
+  #Education Variables
+  educationPop &lt;- &quot;B15003_001E&quot; #Number of respondents 25 Years and Over who responded to education portion of survey
+  bachelorsPop &lt;- &quot;B15003_022E&quot; #Number of respondents 25 Years and Over with a bachelors degree
+  mastersPop &lt;-   &quot;B15003_023E&quot; #Number of respondents 25 Years and Over with a masters degree
+  professionalPop &lt;-&quot;B15003_024E&quot; #Number of respondents 25 Years and Over with a professional degree
+  doctoratePop &lt;-&quot;B15003_025E&quot; #Number of respondents 25 Years and Over with a doctorate degree
+  educationVars &lt;- c(educationPop,bachelorsPop,mastersPop,professionalPop,doctoratePop)
+
+#Other Variables Considered
+  #rentGrossAsPctInc &lt;- &quot;B25070_001E&quot; #Gross Rent As A Percentage Of Household Income In The Past 12 Months
+  
+censusVars &lt;- c(locationName,totalPop,medHHInc,medRentAsPctInc,rawRent,medGrossRent,educationVars)</code></pre>
 </div>
 <div id="pulling-data-from-census-api" class="section level3">
 <h3>Pulling Data from Census API</h3>
 <p>Compiling Census Data for all tracts within the States included in the AirBnB data</p>
-<pre class="r"><code>nameACS &lt;- &quot;acs/acs5&quot;
-vintage &lt;- 2019
-region &lt;- &quot;tract:*&quot;
-regionin &lt;- &quot;state:53+county:*&quot;
-testVars &lt;- c(locationName,totalPop, rawRent, rentAsPctInc)
-testdata &lt;- getCensus(name = nameACS,vintage = vintage, vars = testVars, regionin = regionin, region = region)
+<pre class="r"><code>listing_data$state &lt;- substr(listing_data$stateAndCountyFIPS2010,1,2)
+includedStates &lt;- listing_data %&gt;% group_by(listing_data$state) %&gt;% summarize() %&gt;% drop_na()
+names(includedStates)&lt;-&quot;state_FIPS&quot;
 
-censusData &lt;- data.frame()
-for (fipsCode in includedStates$State_FIPS) {
-  state = paste(&quot;state:&quot;,fipsCode,&quot;+county:*&quot;,sep = &quot;&quot;)
-  print(paste(&quot;Now pulling census data for Geography:&quot;,state))
-  stateData &lt;- getCensus(name = nameACS,vintage = vintage, vars = censusVars, regionin = state, region = region)
-  censusData &lt;- rbind(censusData,stateData)
-}</code></pre>
+nameACS &lt;- &quot;acs/acs5&quot;
+vintage &lt;- c(2014,2019)
+region &lt;- &quot;tract:*&quot;
+
+censusDataRaw &lt;- data.frame()
+for (year in vintage) {
+  for (fipsCode in includedStates$state_FIPS) {
+    state = paste(&quot;state:&quot;,fipsCode,&quot;+county:*&quot;,sep = &quot;&quot;)
+    print(paste(&quot;Now pulling census data for Geography:&quot;,state,&quot; from vintage:&quot;,year))
+    stateData &lt;- getCensus(name = nameACS,vintage = year, vars = censusVars, regionin = state, region = region)
+    stateData$vintage &lt;- year
+    censusDataRaw &lt;- rbind(censusDataRaw,stateData)
+  }
+}
+censusData &lt;- censusDataRaw %&gt;% mutate(tractFIPS = paste(state,county,tract,sep = &quot;&quot;), stateAndCountyFIPS = paste(state,county,sep = &quot;&quot;))
+censusData &lt;- semi_join(censusData,listing_data, by = c(&quot;tractFIPS&quot;=&quot;tractFIPS2010&quot;))</code></pre>
+</div>
+<div id="selecting-msas" class="section level3">
+<h3>Selecting MSAs</h3>
+<p>Filtering censusData to tracts contained within MSAs.</p>
+<pre class="r"><code>setwd(&quot;./OtherData&quot;)
+cbsasRaw &lt;- read.csv(&quot;CBSAs_March_2020.csv&quot;,header = TRUE,colClasses=c(&quot;FIPS.State.Code&quot;=&quot;character&quot;,&quot;FIPS.County.Code&quot;=&quot;character&quot;))  #Census delineation file downloaded from &quot;https://www.census.gov/geographies/reference-files/time-series/demo/metro-micro/delineation-files.html&quot; with first two rows deleted and saved as csv.
+cbsas &lt;- cbsasRaw %&gt;% subset(select=c(&quot;CBSA.Title&quot;,&quot;CBSA.Code&quot;,&quot;Metropolitan.Micropolitan.Statistical.Area&quot;,&quot;FIPS.State.Code&quot;,&quot;FIPS.County.Code&quot;)) %&gt;% mutate(FIPS.State.And.County.Code = paste(FIPS.State.Code,FIPS.County.Code,sep = &quot;&quot;))
+
+censusData&lt;- semi_join(censusData,cbsas,by = c(&quot;stateAndCountyFIPS&quot;=&quot;FIPS.State.And.County.Code&quot;))  #removes all census data from outside of MSAs. 
+includedMSAs &lt;- semi_join(cbsas, censusData,by = c(&quot;FIPS.State.And.County.Code&quot;=&quot;stateAndCountyFIPS&quot;))  </code></pre>
 </div>
 </div>
+<div id="creating-education-variable-renaming-gentrification-variables-to-be-informative" class="section level2">
+<h2>Creating Education Variable, Renaming Gentrification Variables to be Informative</h2>
+<pre class="r"><code>censusData$pctBachelorsOrHigher &lt;- ((censusData$B15003_022E+censusData$B15003_023E+censusData$B15003_024E+censusData$B15003_025E)/censusData$B15003_001E)
+censusData &lt;- rename(.data = censusData,&quot;totalPop&quot;=totalPop,&quot;medHHInc&quot;=medHHInc,&quot;medRentAsPctInc&quot;=medRentAsPctInc)
+
+censusData &lt;- inner_join(censusData,includedMSAs,c(&quot;stateAndCountyFIPS&quot;=&quot;FIPS.State.And.County.Code&quot;))
+censusData &lt;- subset(censusData,select = -c(Metropolitan.Micropolitan.Statistical.Area,FIPS.State.Code,FIPS.County.Code))
+
+#do this portion on a loop for the year and for the city.
+## potentially use dplyr do. 
+##groupby year, city. Then the &quot;do&quot; command will run a function.  
+vintage &lt;- c(2014,2019)
+
+
+censusDataWithDistributions &lt;- data.frame()
+for (year in vintage) {
+  for (city in includedMSAs$CBSA.Code) {
+    cityCensusData &lt;- censusData %&gt;% filter(vintage==year,CBSA.Code==city)
+    educDist &lt;- ecdf(cityCensusData$pctBachelorsOrHigher)
+    cityCensusData$pctileBachelorsOrHigher &lt;- educDist(cityCensusData$pctBachelorsOrHigher)
+    incDist  &lt;- ecdf(cityCensusData$medHHInc)
+    cityCensusData$pctilemedHHInc &lt;- incDist(cityCensusData$medHHInc)
+    rentDist &lt;- ecdf(cityCensusData$medRentAsPctInc)
+    cityCensusData$pctilemedRentAsPctInc &lt;- rentDist(cityCensusData$medRentAsPctInc)
+    
+    censusDataWithDistributions &lt;- rbind(censusDataWithDistributions,cityCensusData)
+    print(paste(year,city))
+  }
+}
+
+hist(censusData$B19013_001E) #negative vals
+hist(censusData$B25071_001E) #negative vals
+hist(censusData$B25064_001E) #negative vals
+hist(censusData$B25056_001E) #no outliers</code></pre>
+<div id="identifying-tracts-which-changed-between-2000-and-2010" class="section level3">
+<h3>Identifying tracts which changed between 2000 and 2010</h3>
+<p>Not necessary for current process</p>
+<pre class="r"><code>listing_data$stateAndCountyFIPSChange &lt;- listing_data$stateAndCountyFIPS2000!=listing_data$stateAndCountyFIPS2010 #identifying tracts which changed between 2000 and 2010
+listing_data %&gt;% filter(listing_data,stateAndCountyFIPSChange==TRUE) %&gt;% table(listing_data$stateAndCountyFIPS2000) #not sure why this works and the code below does
+editedListingData &lt;- filter(listing_data,stateAndCountyFIPSChange==TRUE)
+table(editedListingData$stateAndCountyFIPS2010,editedListingData$stateAndCountyFIPS2000)</code></pre>
+</div>
+</div>
+</div>
+<div id="homework" class="section level1">
+<h1>Homework</h1>
+<p>Have gentrification method for each block map and look at what the gentrification distribution looks like by Friday. Have mapped for 5 cities. IF possible have for 28 cities. Push to github.</p>
+<p>Pick a time window. Skim through past papers and figure out Calculate min and max of reviews time date. If the first dates are</p>
+<p>Think about the X variables. Airbnb review data, airbnb text data, number of airbnbs, population.</p>
+<p>Restrict review data to be within the range 2015-2019.</p>
+<pre class="r"><code>#When I run my conversion I&#39;ll have a mapping from one airbnb to a block. I&#39;ll have two observations, one in 2010 block and one in 2000 block. That #way I know which 2000 and 2010 tracts its in. 
+#Condition on all the observations that have no change in the tract from 2000 to 2010.
+
+#Order of Operations
+#Code the maplinks from lat and longitude to blocks and tracts
+#Pin down gentrification metric
+#Pin down explanatory variables
+  #Controls: population growth. Avg airbnb rating. Location rating on airbnb. 
+  # Run a specification with fixed effects and not
+  # A decision tree will rank which variables are most important
+
+#TFIDF? Term frequency inverse document frequency. R should have built in function. It normalizes word frequency. 
+#Monday Nov 15th send a rought draft to Gelman. </code></pre>
 </div>
 
 

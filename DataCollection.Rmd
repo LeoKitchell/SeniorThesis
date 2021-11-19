@@ -16,6 +16,9 @@ The purpose of this document is to gather data from different sources for my sen
 ```{r}
 runtime <- list() #creating a list to track how long each code chunk takes to run on my machine
 ```
+```{r}
+listing_data <- subset(read.csv(file = "listing_data_11_4_AM.csv"),select = -c(X))
+```
 
 ```{r, include=FALSE}
 runtime$packagesAndLibraries<-Sys.time()
@@ -167,6 +170,9 @@ totalPop <- "B01003_001E" #Census table for total population
 #Gentrification Variables
 medHHInc <- "B19013_001E" #Median household income in inflation adjusted dollars of VINTAGE year (e.g. 2014, 2019).
 medRentAsPctInc <- "B25071_001E" #	Median Gross Rent As A Percentage Of Household Income In The Past 12 Months (Dollars)
+rawRent <-"B25056_001E" #Contract Rent
+medGrossRent <- "B25064_001E" #Median Gross Rent (Dollars)
+
 
   #Education Variables
   educationPop <- "B15003_001E" #Number of respondents 25 Years and Over who responded to education portion of survey
@@ -178,31 +184,16 @@ medRentAsPctInc <- "B25071_001E" #	Median Gross Rent As A Percentage Of Househol
 
 #Other Variables Considered
   #rentGrossAsPctInc <- "B25070_001E" #Gross Rent As A Percentage Of Household Income In The Past 12 Months
-  #rawRent <-"B25056_001E" #Contract Rent
-  #medGrossRent <- "B25064_001E" #Median Gross Rent (Dollars)
-
-censusVars <- c(locationName,totalPop,medHHInc,medRentAsPctInc, educationVars )
+  
+censusVars <- c(locationName,totalPop,medHHInc,medRentAsPctInc,rawRent,medGrossRent,educationVars)
 ```
-
-### Selecting States
-Getting list of all states to pull census data for, based off of states used in Airbnb data. 
-```{r}
-setwd("./OtherData/")
-
-fipsCrosswalk <- read.csv("State_Fips_Codes.csv",colClasses = c(State_FIPS = "character"))
-includedStates <- c("North Carolina","Texas","Massachusetts","Illinois","Ohio","Colorado","New Jersey","California","Tennessee","Louisiana","New York","Oregon","Washington","Minnesota","District of Columbia", "Virginia", "Maryland")
-includedStates <- data.frame(includedStates,TRUE)
-includedStates <-right_join(x = fipsCrosswalk,y = includedStates, by = c("State_Name" = "includedStates"))
-includedStates <- subset(includedStates,select = c("State_Name","State_FIPS"))
-```
-
 
 ### Pulling Data from Census API
 Compiling Census Data for all tracts within the States included in the AirBnB data
 ```{r, cache=TRUE}
 listing_data$state <- substr(listing_data$stateAndCountyFIPS2010,1,2)
-includedState <- listing_data %>% group_by(listing_data$state) %>% summarize() %>% drop_na()
-names(includedState)<-"state_FIPS"
+includedStates <- listing_data %>% group_by(listing_data$state) %>% summarize() %>% drop_na()
+names(includedStates)<-"state_FIPS"
 
 nameACS <- "acs/acs5"
 vintage <- c(2014,2019)
@@ -210,7 +201,7 @@ region <- "tract:*"
 
 censusDataRaw <- data.frame()
 for (year in vintage) {
-  for (fipsCode in includedState$state_FIPS) {
+  for (fipsCode in includedStates$state_FIPS) {
     state = paste("state:",fipsCode,"+county:*",sep = "")
     print(paste("Now pulling census data for Geography:",state," from vintage:",year))
     stateData <- getCensus(name = nameACS,vintage = year, vars = censusVars, regionin = state, region = region)
@@ -223,7 +214,7 @@ censusData <- semi_join(censusData,listing_data, by = c("tractFIPS"="tractFIPS20
 ```
 
 ### Selecting MSAs
-Filtering `r censusData` to tracts contained within MSAs.
+Filtering censusData to tracts contained within MSAs.
 ```{r}
 setwd("./OtherData")
 cbsasRaw <- read.csv("CBSAs_March_2020.csv",header = TRUE,colClasses=c("FIPS.State.Code"="character","FIPS.County.Code"="character"))  #Census delineation file downloaded from "https://www.census.gov/geographies/reference-files/time-series/demo/metro-micro/delineation-files.html" with first two rows deleted and saved as csv.
@@ -236,35 +227,37 @@ includedMSAs <- semi_join(cbsas, censusData,by = c("FIPS.State.And.County.Code"=
 ## Creating Education Variable, Renaming Gentrification Variables to be Informative
 ```{r}
 censusData$pctBachelorsOrHigher <- ((censusData$B15003_022E+censusData$B15003_023E+censusData$B15003_024E+censusData$B15003_025E)/censusData$B15003_001E)
-hist(censusData$pctBachelorsOrHigher)
-censusData%>%filter(medHHInc>0)%>%hist(medHHInc)
-hist(censusData$medHHInc)
 censusData <- rename(.data = censusData,"totalPop"=totalPop,"medHHInc"=medHHInc,"medRentAsPctInc"=medRentAsPctInc)
 
+censusData <- inner_join(censusData,includedMSAs,c("stateAndCountyFIPS"="FIPS.State.And.County.Code"))
+censusData <- subset(censusData,select = -c(Metropolitan.Micropolitan.Statistical.Area,FIPS.State.Code,FIPS.County.Code))
 
 #do this portion on a loop for the year and for the city.
 ## potentially use dplyr do. 
 ##groupby year, city. Then the "do" command will run a function.  
+vintage <- c(2014,2019)
 
+
+censusDataWithDistributions <- data.frame()
 for (year in vintage) {
-  for (city in censusData$CBSA) {
+  for (city in includedMSAs$CBSA.Code) {
+    cityCensusData <- censusData %>% filter(vintage==year,CBSA.Code==city)
+    educDist <- ecdf(cityCensusData$pctBachelorsOrHigher)
+    cityCensusData$pctileBachelorsOrHigher <- educDist(cityCensusData$pctBachelorsOrHigher)
+    incDist  <- ecdf(cityCensusData$medHHInc)
+    cityCensusData$pctilemedHHInc <- incDist(cityCensusData$medHHInc)
+    rentDist <- ecdf(cityCensusData$medRentAsPctInc)
+    cityCensusData$pctilemedRentAsPctInc <- rentDist(cityCensusData$medRentAsPctInc)
     
+    censusDataWithDistributions <- rbind(censusDataWithDistributions,cityCensusData)
+    print(paste(year,city))
   }
-  
 }
 
-educDist <-ecdf(censusData$pctBachelorsOrHigher)
-incDist <- ecdf(censusData$medHHInc)
-rentDist <- ecdf(censusData$medRentAsPctInc)
-
-censusData$pctileBachelorsOrHigher<- educDist(censusData$pctBachelorsOrHigher)
-censusData$pctilemedHHInc <- incDist(censusData$medHHInc)
-censusData$pctilemedRentAsPctInc <- rentDist(censusData$medRentAsPctInc)
-
-
-censusDataChange <- 
-census
-
+hist(censusData$B19013_001E) #negative vals
+hist(censusData$B25071_001E) #negative vals
+hist(censusData$B25064_001E) #negative vals
+hist(censusData$B25056_001E) #no outliers
 ```
 
 ### Identifying tracts which changed between 2000 and 2010
@@ -277,23 +270,8 @@ table(editedListingData$stateAndCountyFIPS2010,editedListingData$stateAndCountyF
 ```
 
 
-```{r}
-listing_data <- subset(read.csv(file = "listing_data_11_4_AM.csv"),select = -c(X))
 
 
-
-filter(censusData,censusData$B25071_001E<-100)
-censusData %>% filter(B25071_001E<0) %>% count(vintage==2019)
-names(censusData)
-```
-
-```{r}
-apis <- listCensusApis()
-View(apis)
-path = "C:\Users\Leo\Desktop\LOWE Institute\Airbnb_Migration"
-msaCrosswalk <- read.csv()
-
-```
 # Homework
 Have gentrification method for each block
 map and look at what the gentrification distribution looks like by Friday. Have mapped for 5 cities. IF possible have for 28 cities. Push to github.
