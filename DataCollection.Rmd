@@ -1,13 +1,12 @@
 ---
 title: "DataCollection"
 author: "Leo Kitchell"
-date: "11/3/2021"
+date: "11/19/2021"
 output: html_document
 ---
 
 ```{r, include=FALSE}
-knitr::opts_chunk$set(
-  eval = FALSE)
+knitr::opts_chunk$set(echo = FALSE)
 ```
 
 ## Purpose
@@ -15,9 +14,6 @@ The purpose of this document is to gather data from different sources for my sen
 
 ```{r}
 runtime <- list() #creating a list to track how long each code chunk takes to run on my machine
-```
-```{r}
-listing_data <- subset(read.csv(file = "listing_data_11_4_AM.csv"),select = -c(X))
 ```
 
 ```{r, include=FALSE}
@@ -28,6 +24,13 @@ runtime$packagesAndLibraries<-Sys.time()
 #install.packages("stopwords")
 #install.packages("httr")
 #install.packages("jsonlite")
+#install.packages("tidycensus")
+#install.packages('tigris')
+#install.packages("leaflet")
+#library(tidycensus)
+library(acs)
+library(leaflet)
+library(tigris)
 library(stopwords)
 library(quanteda)
 library(censusapi)
@@ -66,9 +69,6 @@ for (variable in file_list) {
 }
 listing_data <- listing_data %>% filter(!is.na(id)) #removes rows with NA listing IDs. 
 review_data <- review_data %>% filter(!is.na(id)) #removes rows with NA listing IDs. 
-
-listing_data$stateAndCountyFIPS2000 <- substr(listing_data$tractFIPS2000,1,5)  #creating a variable for the state and county fips from the tract fips code so that census data can be can be merged
-listing_data$stateAndCountyFIPS2010 <- substr(listing_data$tractFIPS2010,1,5)
 
 runtime$stackingData <- Sys.time()- runtime$stackingData 
 ```
@@ -147,6 +147,15 @@ runtime$geocodingAirbnbs <- Sys.time() - runtime$geocodingAirbnbs
 ```
 
 
+```{r}
+listing_data <- subset(read.csv(file = "listing_data_11_4_AM.csv",colClasses = c("tractFIPS2000"="character","tractFIPS2010"="character")),select = -c(X))  #listings that have already been geocoded.
+
+
+listing_data$stateAndCountyFIPS2000 <- substr(listing_data$tractFIPS2000,1,5)  #creating a variable for the state and county fips from the tract fips code so that census data can be can be merged
+listing_data$stateAndCountyFIPS2010 <- substr(listing_data$tractFIPS2010,1,5)
+```
+
+
 ## Census Data
 
 ### Setup Census API key to pull data.
@@ -167,31 +176,32 @@ Descriptions and codes of variables available in the ACS 5 year dataset located 
 locationName <- "NAME"    #Census geography name
 totalPop <- "B01003_001E" #Census table for total population
 
-#Gentrification Variables
-medHHInc <- "B19013_001E" #Median household income in inflation adjusted dollars of VINTAGE year (e.g. 2014, 2019).
-medRentAsPctInc <- "B25071_001E" #	Median Gross Rent As A Percentage Of Household Income In The Past 12 Months (Dollars)
-rawRent <-"B25056_001E" #Contract Rent
-medGrossRent <- "B25064_001E" #Median Gross Rent (Dollars)
-
-
-  #Education Variables
+#Education Variables
   educationPop <- "B15003_001E" #Number of respondents 25 Years and Over who responded to education portion of survey
   bachelorsPop <- "B15003_022E" #Number of respondents 25 Years and Over with a bachelors degree
   mastersPop <-   "B15003_023E" #Number of respondents 25 Years and Over with a masters degree
   professionalPop <-"B15003_024E" #Number of respondents 25 Years and Over with a professional degree
   doctoratePop <-"B15003_025E" #Number of respondents 25 Years and Over with a doctorate degree
-  educationVars <- c(educationPop,bachelorsPop,mastersPop,professionalPop,doctoratePop)
+  
+#Gentrification Variables
+medHHInc <- "B19013_001E" #Median household income in inflation adjusted dollars of VINTAGE year (e.g. 2014, 2019).
+medGrossRent <- "B25064_001E" #Median Gross Rent (Dollars)
+educationVars <- c(educationPop,bachelorsPop,mastersPop,professionalPop,doctoratePop)
+
+censusVars <- c(locationName,totalPop,medHHInc,medGrossRent,educationVars)
 
 #Other Variables Considered
   #rentGrossAsPctInc <- "B25070_001E" #Gross Rent As A Percentage Of Household Income In The Past 12 Months
-  
-censusVars <- c(locationName,totalPop,medHHInc,medRentAsPctInc,rawRent,medGrossRent,educationVars)
+  #medRentAsPctInc <- "B25071_001E" #	Median Gross Rent As A Percentage Of Household Income In The Past 12 Months (Dollars)
+  #rawRent <-"B25056_001E" #Contract Rent
 ```
 
 ### Pulling Data from Census API
 Compiling Census Data for all tracts within the States included in the AirBnB data
 ```{r, cache=TRUE}
+runtime$pullingCensus <- Sys.time()
 listing_data$state <- substr(listing_data$stateAndCountyFIPS2010,1,2)
+includedStates <- listing_data %>% group_by(nchar(stateAndCountyFIPS2010)) %>% summarize() %>% drop_na()
 includedStates <- listing_data %>% group_by(listing_data$state) %>% summarize() %>% drop_na()
 names(includedStates)<-"state_FIPS"
 
@@ -209,8 +219,10 @@ for (year in vintage) {
     censusDataRaw <- rbind(censusDataRaw,stateData)
   }
 }
+
 censusData <- censusDataRaw %>% mutate(tractFIPS = paste(state,county,tract,sep = ""), stateAndCountyFIPS = paste(state,county,sep = ""))
 censusData <- semi_join(censusData,listing_data, by = c("tractFIPS"="tractFIPS2010"))
+runtime$pullingCensus <- Sys.time()-runtime$pullingcensus
 ```
 
 ### Selecting MSAs
@@ -226,17 +238,15 @@ includedMSAs <- semi_join(cbsas, censusData,by = c("FIPS.State.And.County.Code"=
 
 ## Creating Education Variable, Renaming Gentrification Variables to be Informative
 ```{r}
+runtime$creatingGentrificationVariables <- Sys.time()
 censusData$pctBachelorsOrHigher <- ((censusData$B15003_022E+censusData$B15003_023E+censusData$B15003_024E+censusData$B15003_025E)/censusData$B15003_001E)
-censusData <- rename(.data = censusData,"totalPop"=totalPop,"medHHInc"=medHHInc,"medRentAsPctInc"=medRentAsPctInc)
+censusData <- rename(.data = censusData,"totalPop"=totalPop,"medHHInc"=medHHInc,"medGrossRent"=medGrossRent)
 
 censusData <- inner_join(censusData,includedMSAs,c("stateAndCountyFIPS"="FIPS.State.And.County.Code"))
 censusData <- subset(censusData,select = -c(Metropolitan.Micropolitan.Statistical.Area,FIPS.State.Code,FIPS.County.Code))
 
 censusData <-censusData %>% mutate(across(where(is.double),~na_if(.,-666666666)))   #replaces all instances of -666666666	with "NA"
 
-#do this portion on a loop for the year and for the city.
-## potentially use dplyr do. 
-##groupby year, city. Then the "do" command will run a function.  
 vintage <- c(2014,2019)
 
 uniqueMSAs <- distinct(includedMSAs,CBSA.Code)
@@ -249,38 +259,75 @@ for (year in vintage) {
     cityCensusData$pctileBachelorsOrHigher <- educDist(cityCensusData$pctBachelorsOrHigher)
     incDist  <- ecdf(cityCensusData$medHHInc)
     cityCensusData$pctilemedHHInc <- incDist(cityCensusData$medHHInc)
-    rentDist <- ecdf(cityCensusData$medRentAsPctInc)
-    cityCensusData$pctilemedRentAsPctInc <- rentDist(cityCensusData$medRentAsPctInc)
+    rentDist <- ecdf(cityCensusData$medGrossRent)
+    cityCensusData$pctilemedGrossRent <- rentDist(cityCensusData$medGrossRent)
     
     censusDataWithDistributions <- rbind(censusDataWithDistributions,cityCensusData)
     print(paste(year,city))
   }
 }
 
-#testing to see if the code worked
-a<- censusDataWithDistributions %>% filter(vintage==year,CBSA.Code==city) %>% subset(select=c("tract","NAME","medHHInc","CBSA.Code","pctilemedHHInc"))
-testDist <- ecdf(a$medHHInc)
-head(a)
-hist(a$medHHInc)
-testDist(86000)
-hist(censusData$medRentAsPctInc)
-hist(censusData$medHHInc)
-filter(censusData,medHHInc<20000,vintage==2019,state==53)
-hist(censusData$B19013_001E) #negative vals
-hist(censusData$B25071_001E) #negative vals
-hist(censusData$B25064_001E) #negative vals
-hist(censusData$B25056_001E) #no outliers
+runtime$creatingGentrificationVariables <- Sys.time() - runtime$creatingGentrificationVariables
+```
+
+## Calculating Gentrification Index by Tract
+```{r}
+# calculate average index
+censusDataWithDistributions <- censusDataWithDistributions %>% mutate(gentrificationIndex = (pctilemedHHInc + pctilemedGrossRent + pctileBachelorsOrHigher)/3)
+hist(censusDataWithDistributions$gentrificationIndex)
+
+censusDataWithDistributionsWide <- reshape(censusDataWithDistributions, idvar = "tractFIPS", timevar = "vintage", direction = "wide")
+censusDataWithDistributionsWide <- censusDataWithDistributionsWide %>% mutate(gentrificationChange = gentrificationIndex.2019 - gentrificationIndex.2014)
+censusDataWithDistributionsWide %>% select(NAME.2014,state.2014,county.2014,tractFIPS,gentrificationIndex.2014,gentrificationIndex.2019,gentrificationChange) %>% arrange(desc(gentrificationChange)) %>% filter(state.2014==53)
+```
+
+## Mapping Gentrification Index by MSA
+```{r}
+runtime$mapping <- Sys.time()
+tractGeom <- data.frame()
+ for (fipsCode in includedStates$state_FIPS) {
+    stateTractGeom <- tracts(state = fipsCode)
+    tractGeom <- rbind(tractGeom,stateTractGeom)
+}
+
+tractGeom1 <- tractGeom %>% subset(select=c("GEOID","geometry"))
+censusDataWithDistributionsWideGeoms <- geo_join(data_frame = censusDataWithDistributionsWide,spatial_data = tractGeom1,by_df = "tractFIPS",by_sp = "GEOID")
+
+
+ii=1
+cityMaps <- ""
+for (MSA in uniqueMSAs$CBSA.Code) {
+  cityCensusData <- filter(censusDataWithDistributionsWideGeoms,censusDataWithDistributionsWideGeoms$CBSA.Code.2014==MSA)
+  cityMaps[ii] <- plot(cityCensusData["gentrificationChange"],main=paste("Gentrification Change 2014-2019 in",cityCensusData$CBSA.Title.2014[1]))
+  ii<-ii+1
+}
+runtime$mapping <- Sys.time() - runtime$mapping
+```
+
+## Interactive Maps - Unfinished
+```{r,eval=FALSE}
+pal <- colorQuantile("Greens", NULL, n = 6)
+popup <- paste0("Gentrification Change: ", as.character(cityCensusData$gentrificationChange))
+leaflet() %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addPolygons(data = cityCensusData, 
+              fillColor = ~pal(cityCensusData$gentrificationChange), 
+              fillOpacity = 0.7, 
+              weight = 0.2, 
+              popup = popup) %>%
+  addLegend(pal = pal, 
+            values = cityCensusData$gentrificationChange, 
+            position = "bottomright", 
+            title = paste("Gentrification in",cityCensusData$CBSA.Title.2014[1]))
 ```
 
 ### Identifying tracts which changed between 2000 and 2010
 Not necessary for current process
 ```{r}
 listing_data$stateAndCountyFIPSChange <- listing_data$stateAndCountyFIPS2000!=listing_data$stateAndCountyFIPS2010 #identifying tracts which changed between 2000 and 2010
-listing_data %>% filter(listing_data,stateAndCountyFIPSChange==TRUE) %>% table(listing_data$stateAndCountyFIPS2000) #not sure why this works and the code below does
 editedListingData <- filter(listing_data,stateAndCountyFIPSChange==TRUE)
 table(editedListingData$stateAndCountyFIPS2010,editedListingData$stateAndCountyFIPS2000)
 ```
-
 
 
 
