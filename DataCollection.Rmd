@@ -17,8 +17,8 @@ runtime <- list() #creating a list to track how long each code chunk takes to ru
 ```
 
 ```{r, include=FALSE}
+#Installing relevant packages and libraries
 runtime$packagesAndLibraries<-Sys.time()
-#Installing relevant packages
 #install.packages("censusapi")
 #install.packages("quanteda")
 #install.packages("stopwords")
@@ -29,6 +29,7 @@ runtime$packagesAndLibraries<-Sys.time()
 #install.packages("leaflet")
 #library(tidycensus)
 library(acs)
+library(lubridate)
 library(leaflet)
 library(tigris)
 library(stopwords)
@@ -73,42 +74,6 @@ review_data <- review_data %>% filter(!is.na(id)) #removes rows with NA listing 
 runtime$stackingData <- Sys.time()- runtime$stackingData 
 ```
 
-## Cleaning Airbnb Review Words
-
-### Remove text formatting
-```{r}
-runtime$removeTextFormatting <- Sys.time()
-#create new column that will become the cleaned review data
-review_data$clean_reviews <- review_data$comments
-
-# Remove newlines, carriage returns, tabs, and breaks
-review_data$clean_reviews <- str_replace_all(review_data$clean_reviews,'\n', ' ')
-review_data$clean_reviews <- str_replace_all(review_data$clean_reviews,'\t', ' ')
-review_data$clean_reviews <- str_replace_all(review_data$clean_reviews,'\r', ' ')
-review_data$clean_reviews <- str_replace_all(review_data$clean_reviews,'<br/>', ' ')
-
-#Remove punctuation marks
-review_data$clean_reviews <- str_replace_all(review_data$clean_reviews, "[[:punct:]]", " ") 
-runtime$removeTextFormatting <- Sys.time() - runtime$removeTextFormatting
-```
-
-### Remove Stopwords
-```{r}
-stopwords = stopwords(language = "en", source = "snowball")
-##TO DO: remove stopwords 
-```
-
-### Stemming
-```{r}
-runtime$stemming <- Sys.time()
-
-runtime$stemming <- Sys.time() - runtime$stemming
-```
-
-
-# Gentrification Data
-The specification of gentrification which will be used in this project is heavily inspired by the work of Freeman (2005) and Bates (2013). To compose our gentrification measure we will use Census tract level data on median household income, educational attainment, and percentage of income spent on rent. **The rent measure may have to be changed to dollar amount spent on rent so that we don't get confonding from increased household income in the tract** 
-
 ## Geocoding Airbnb Listings
 Mapping latitude to blocks and tracts. Predicted to take ~200 minutes per vintage. 
 ```{r, cache=TRUE, eval=FALSE}
@@ -146,30 +111,21 @@ write.csv(listing_data,file = "listing_data_11_4.csv",row.names = FALSE)
 runtime$geocodingAirbnbs <- Sys.time() - runtime$geocodingAirbnbs
 ```
 
-
+## Reading in Geocoded Airbnb Listings
+For efficiency, the **Geocoding Airbnb Listings** section has been set to not evaluate, and the data which it generated is read in here.
 ```{r}
 listing_data <- subset(read.csv(file = "listing_data_11_4_AM.csv",colClasses = c("tractFIPS2000"="character","tractFIPS2010"="character")),select = -c(X))  #listings that have already been geocoded.
-
-
 listing_data$stateAndCountyFIPS2000 <- substr(listing_data$tractFIPS2000,1,5)  #creating a variable for the state and county fips from the tract fips code so that census data can be can be merged
 listing_data$stateAndCountyFIPS2010 <- substr(listing_data$tractFIPS2010,1,5)
 ```
 
+# Gentrification Data
 
-## Census Data
+## Specification
+The specification of gentrification which will be used in this project is heavily inspired by the work of Freeman (2005) and Bates (2013). To compose our gentrification measure we will use Census tract level data on median household income, educational attainment, and percentage of income spent on rent. **The rent measure may have to be changed to dollar amount spent on rent so that we don't get confonding from increased household income in the tract** 
 
-### Setup Census API key to pull data.
-```{r}
-# Add key to .Renviron
-key = "be936e1698dd7dfd657546a6a7088c6306f4e54f"
-Sys.setenv(CENSUS_KEY= key)
-# Reload .Renviron
-readRenviron("~/.Renviron")
-# Check to see that the expected key is output in your R console
-Sys.getenv("CENSUS_KEY")
-```
-
-### Census Variables
+## Census Variables
+These variables will be used to determine the gentrification in a given neighborhood.
 Descriptions and codes of variables available in the ACS 5 year dataset located here: https://www.socialexplorer.com/data/ACS2019_5yr/metadata/?ds=ACS19_5yr
 ```{r}
 #Control Variables
@@ -196,9 +152,20 @@ censusVars <- c(locationName,totalPop,medHHInc,medGrossRent,educationVars)
   #rawRent <-"B25056_001E" #Contract Rent
 ```
 
+### Setup Census API key to pull data.
+```{r}
+# Add key to .Renviron
+key = "be936e1698dd7dfd657546a6a7088c6306f4e54f"
+Sys.setenv(CENSUS_KEY= key)
+# Reload .Renviron
+readRenviron("~/.Renviron")
+# Check to see that the expected key is output in your R console
+Sys.getenv("CENSUS_KEY")
+```
+
 ### Pulling Data from Census API
 Compiling Census Data for all tracts within the States included in the AirBnB data
-```{r, cache=TRUE}
+```{r, cache=TRUE,results='hide'}
 runtime$pullingCensus <- Sys.time()
 listing_data$state <- substr(listing_data$stateAndCountyFIPS2010,1,2)
 includedStates <- listing_data %>% group_by(nchar(stateAndCountyFIPS2010)) %>% summarize() %>% drop_na()
@@ -236,8 +203,8 @@ censusData<- semi_join(censusData,cbsas,by = c("stateAndCountyFIPS"="FIPS.State.
 includedMSAs <- semi_join(cbsas, censusData,by = c("FIPS.State.And.County.Code"="stateAndCountyFIPS"))  
 ```
 
-## Creating Education Variable, Renaming Gentrification Variables to be Informative
-```{r}
+### Creating Education Variable, Renaming Gentrification Variables to be Informative
+```{r, results='hide'}
 runtime$creatingGentrificationVariables <- Sys.time()
 censusData$pctBachelorsOrHigher <- ((censusData$B15003_022E+censusData$B15003_023E+censusData$B15003_024E+censusData$B15003_025E)/censusData$B15003_001E)
 censusData <- rename(.data = censusData,"totalPop"=totalPop,"medHHInc"=medHHInc,"medGrossRent"=medGrossRent)
@@ -245,7 +212,7 @@ censusData <- rename(.data = censusData,"totalPop"=totalPop,"medHHInc"=medHHInc,
 censusData <- inner_join(censusData,includedMSAs,c("stateAndCountyFIPS"="FIPS.State.And.County.Code"))
 censusData <- subset(censusData,select = -c(Metropolitan.Micropolitan.Statistical.Area,FIPS.State.Code,FIPS.County.Code))
 
-censusData <-censusData %>% mutate(across(where(is.double),~na_if(.,-666666666)))   #replaces all instances of -666666666	with "NA"
+censusData <- censusData %>% mutate(across(where(is.double),~na_if(.,-666666666)))   #replaces all instances of -666666666	with "NA"
 
 vintage <- c(2014,2019)
 
@@ -263,7 +230,6 @@ for (year in vintage) {
     cityCensusData$pctilemedGrossRent <- rentDist(cityCensusData$medGrossRent)
     
     censusDataWithDistributions <- rbind(censusDataWithDistributions,cityCensusData)
-    print(paste(year,city))
   }
 }
 
@@ -278,11 +244,17 @@ hist(censusDataWithDistributions$gentrificationIndex)
 
 censusDataWithDistributionsWide <- reshape(censusDataWithDistributions, idvar = "tractFIPS", timevar = "vintage", direction = "wide")
 censusDataWithDistributionsWide <- censusDataWithDistributionsWide %>% mutate(gentrificationChange = gentrificationIndex.2019 - gentrificationIndex.2014)
-censusDataWithDistributionsWide %>% select(NAME.2014,state.2014,county.2014,tractFIPS,gentrificationIndex.2014,gentrificationIndex.2019,gentrificationChange) %>% arrange(desc(gentrificationChange)) %>% filter(state.2014==53)
+hist(censusDataWithDistributionsWide$gentrificationChange,breaks = 20)
 ```
 
-## Mapping Gentrification Index by MSA
+### Calculating Population Growth by Tract
 ```{r}
+censusDataWithDistributionsWide <- censusDataWithDistributionsWide %>% mutate(popGrowth = ((totalPop.2019 - totalPop.2014)/totalPop.2014))
+```
+
+
+### Pulling Geometries to Map
+```{r,results='hide'}
 runtime$mapping <- Sys.time()
 tractGeom <- data.frame()
  for (fipsCode in includedStates$state_FIPS) {
@@ -292,8 +264,10 @@ tractGeom <- data.frame()
 
 tractGeom1 <- tractGeom %>% subset(select=c("GEOID","geometry"))
 censusDataWithDistributionsWideGeoms <- geo_join(data_frame = censusDataWithDistributionsWide,spatial_data = tractGeom1,by_df = "tractFIPS",by_sp = "GEOID")
+```
 
-
+## Mapping Gentrification Index by MSA
+```{r, warning=FALSE}
 ii=1
 cityMaps <- ""
 for (MSA in uniqueMSAs$CBSA.Code) {
@@ -302,64 +276,31 @@ for (MSA in uniqueMSAs$CBSA.Code) {
   ii<-ii+1
 }
 runtime$mapping <- Sys.time() - runtime$mapping
+
 ```
 
-## Interactive Maps - Unfinished
-```{r,eval=FALSE}
-pal <- colorQuantile("Greens", NULL, n = 6)
-popup <- paste0("Gentrification Change: ", as.character(cityCensusData$gentrificationChange))
-leaflet() %>%
-  addProviderTiles("CartoDB.Positron") %>%
-  addPolygons(data = cityCensusData, 
-              fillColor = ~pal(cityCensusData$gentrificationChange), 
-              fillOpacity = 0.7, 
-              weight = 0.2, 
-              popup = popup) %>%
-  addLegend(pal = pal, 
-            values = cityCensusData$gentrificationChange, 
-            position = "bottomright", 
-            title = paste("Gentrification in",cityCensusData$CBSA.Title.2014[1]))
-```
-
-### Identifying tracts which changed between 2000 and 2010
-Not necessary for current process
+# Combining Airbnb and Gentrification Data
+Merging the `r review_data`, `r listing_data`, and `r censusDataWithDistributionsWide` into one object
 ```{r}
-listing_data$stateAndCountyFIPSChange <- listing_data$stateAndCountyFIPS2000!=listing_data$stateAndCountyFIPS2010 #identifying tracts which changed between 2000 and 2010
-editedListingData <- filter(listing_data,stateAndCountyFIPSChange==TRUE)
-table(editedListingData$stateAndCountyFIPS2010,editedListingData$stateAndCountyFIPS2000)
+runtime$combiningData <- Sys.time()
+testData <- review_data
+testData <- testData %>% filter(date >= as.Date("2015-01-01") & date <= as.Date("2019-12-31"))  #only keep reviews between census collection time period: 2015-2019
+testData <- testData %>% subset(select = c(listing_id,comments)) #keep only listing_id and text data
+testData <- aggregate(comments ~ listing_id, testData, paste, collapse = " ") #combines all text data for a given listing into one row for that listing
+
+smallListingData <- listing_data
+smallListingData <- smallListingData %>% subset(select = c("id","bedrooms","bathrooms","price","minimum_nights",
+                                                             "review_scores_rating","review_scores_location","license","tractFIPS2010"))
+airbnbData <- inner_join(smallListingData,testData,by = c("id"="listing_id"))
+
+testCensusData <- censusDataWithDistributionsWide %>% subset(select = c("tractFIPS","NAME.2014","totalPop.2014","popGrowth","gentrificationChange"))
+
+combinedData <- inner_join(testCensusData,airbnbData,by = c("tractFIPS"="tractFIPS2010"))
+runtime$combiningData <- runtime$combiningData - Sys.time()
 ```
 
-
-
-# Homework
-Have gentrification method for each block
-map and look at what the gentrification distribution looks like by Friday. Have mapped for 5 cities. IF possible have for 28 cities. Push to github.
-
-Pick a time window. Skim through past papers and figure out 
-Calculate min and max of reviews time date. If the first dates are 
-
-Think about the X variables. Airbnb review data, airbnb text data, number of airbnbs, population. 
-
-Restrict review data to be within the range 2015-2019. 
-
-
+# Saving Relevant Data 
+Saving compiled data to a .RData file for processing in a separate .Rmd file. 
 ```{r}
-#When I run my conversion I'll have a mapping from one airbnb to a block. I'll have two observations, one in 2010 block and one in 2000 block. That #way I know which 2000 and 2010 tracts its in. 
-#Condition on all the observations that have no change in the tract from 2000 to 2010.
-
-#Order of Operations
-#Code the maplinks from lat and longitude to blocks and tracts
-#Pin down gentrification metric
-#Pin down explanatory variables
-  #Controls: population growth. Avg airbnb rating. Location rating on airbnb. 
-  # Run a specification with fixed effects and not
-  # A decision tree will rank which variables are most important
-
-#TFIDF? Term frequency inverse document frequency. R should have built in function. It normalizes word frequency. 
-#Monday Nov 15th send a rought draft to Gelman. 
+save(list = "combinedData",file = "Compiled_Thesis_Data.RData")
 ```
-
-
-
-
-
