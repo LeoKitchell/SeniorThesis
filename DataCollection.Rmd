@@ -1,7 +1,7 @@
 ---
 title: "DataCollection"
 author: "Leo Kitchell"
-date: "11/19/2021"
+date: "11/29/2021"
 output: html_document
 ---
 
@@ -50,26 +50,16 @@ Data has been downloaded from InsideAirbnb for 28 US cities. These data are comp
 Using rbind to stack airbnb data from each filetype (Listings, Calendar, and Reviews) into three dataframes.
 ```{r, cache=TRUE}
 runtime$stackingData <- Sys.time()
-path = "C:/Users/Leo/Desktop/CMC/Senior Year/Fall 2021/SeniorThesis/InsideAirbnbData/Zipped_Data/"
-file_list = list.files(path = path,'*.csv')
+file_list = list.files("./InsideAirbnbData/Zipped_Data/",'*.csv')
 
 listing_data <- array()
-calendar_data <- array()
-review_data <- array()
 
 for (variable in file_list) {
   if(grepl("listings",variable,fixed=TRUE)){
       listing_data <- rbind(listing_data,read.csv(paste(path,variable,sep = "")))
-  } else if (grepl("calendar",variable,fixed=TRUE)){
-      #calendar_data <- rbind(calendar_data,read.csv(paste(path,variable,sep = "")))#commenting this out because the calendar data takes a long time to R bind and isn't used. 
-  } else if (grepl("reviews",variable,fixed=TRUE)){
-      review_data <- rbind(review_data,read.csv(paste(path,variable,sep = "")))
-  } else{
-      print("Error in stacking Airbnb data.")
-  }
+  } 
 }
 listing_data <- listing_data %>% filter(!is.na(id)) #removes rows with NA listing IDs. 
-review_data <- review_data %>% filter(!is.na(id)) #removes rows with NA listing IDs. 
 
 runtime$stackingData <- Sys.time()- runtime$stackingData 
 ```
@@ -85,7 +75,7 @@ runtime$geocodingAirbnbs <- Sys.time()
 #vintage <- c(2000,2010)
 
 #for (year in vintage) {
-  for (listing in 1:nrow(listing_data[1:149276,])) {
+  for (listing in 1:nrow(listing_data)) {
   lat = listing_data$latitude[listing]
     long = listing_data$longitude[listing]
     url <- paste("https://geo.fcc.gov/api/census/block/find?latitude=",lat,"&longitude=",long,"&censusYear=",2010,"&format=json",sep = "")
@@ -102,21 +92,23 @@ runtime$geocodingAirbnbs <- Sys.time()
     if(listing%%1000==0) {
       print(paste(listing,"listings geolocated"))
     }
-    #if(listing%%20000==0){
-    #  write.csv(listing_data,file = "listing_data_11_4.csv",row.names = FALSE)
-    #}
   }
 #}
-write.csv(listing_data,file = "listing_data_11_4.csv",row.names = FALSE)
+
+listing_data <- listing_data %>% subset(select = -c(host_url,picture_url,host_has_profile_pic))   # removing data that wont be used to save space
+listing_data$stateAndCountyFIPS2000 <- substr(listing_data$tractFIPS2000,1,5)  #creating a variable for the state and county fips from the tract fips code so that census data can be can be merged
+listing_data$stateAndCountyFIPS2010 <- substr(listing_data$tractFIPS2010,1,5)
+write.csv(listing_data, file=gzfile("listing_data_11_29.csv.gz", compression = 9),row.names = FALSE)
+
 runtime$geocodingAirbnbs <- Sys.time() - runtime$geocodingAirbnbs
 ```
 
 ## Reading in Geocoded Airbnb Listings
 For efficiency, the **Geocoding Airbnb Listings** section has been set to not evaluate, and the data which it generated is read in here.
 ```{r}
-listing_data <- subset(read.csv(file = "listing_data_11_4_AM.csv",colClasses = c("tractFIPS2000"="character","tractFIPS2010"="character")),select = -c(X))  #listings that have already been geocoded.
-listing_data$stateAndCountyFIPS2000 <- substr(listing_data$tractFIPS2000,1,5)  #creating a variable for the state and county fips from the tract fips code so that census data can be can be merged
-listing_data$stateAndCountyFIPS2010 <- substr(listing_data$tractFIPS2010,1,5)
+listing_data <- read.csv(file = "listing_data_11_29.csv.gz",colClasses = c("fullFIPS2000"="character","fullFIPS2010"="character",
+                                                                           "tractFIPS2000"="character","tractFIPS2010"="character",
+                                                                           "stateAndCountyFIPS2000"="character","stateAndCountyFIPS2010"="character")) #listings that have already been geocoded.
 ```
 
 # Gentrification Data
@@ -279,28 +271,8 @@ runtime$mapping <- Sys.time() - runtime$mapping
 
 ```
 
-# Combining Airbnb and Gentrification Data
-Merging the `r review_data`, `r listing_data`, and `r censusDataWithDistributionsWide` into one object
-```{r}
-runtime$combiningData <- Sys.time()
-testData <- review_data
-testData <- testData %>% filter(date >= as.Date("2015-01-01") & date <= as.Date("2019-12-31"))  #only keep reviews between census collection time period: 2015-2019
-testData <- testData %>% subset(select = c(listing_id,comments)) #keep only listing_id and text data
-testData <- aggregate(comments ~ listing_id, testData, paste, collapse = " ") #combines all text data for a given listing into one row for that listing
-
-smallListingData <- listing_data
-smallListingData <- smallListingData %>% subset(select = c("id","bedrooms","bathrooms","price","minimum_nights",
-                                                             "review_scores_rating","review_scores_location","license","tractFIPS2010"))
-airbnbData <- inner_join(smallListingData,testData,by = c("id"="listing_id"))
-
-testCensusData <- censusDataWithDistributionsWide %>% subset(select = c("tractFIPS","NAME.2014","totalPop.2014","popGrowth","gentrificationChange"))
-
-combinedData <- inner_join(testCensusData,airbnbData,by = c("tractFIPS"="tractFIPS2010"))
-runtime$combiningData <- runtime$combiningData - Sys.time()
-```
-
 # Saving Relevant Data 
 Saving compiled data to a .RData file for processing in a separate .Rmd file. 
 ```{r}
-save(list = "combinedData",file = "Compiled_Thesis_Data.RData")
+save(list = c("listing_data","censusDataWithDistributionsWide"), file = "Compiled_Thesis_Data.RData")
 ```

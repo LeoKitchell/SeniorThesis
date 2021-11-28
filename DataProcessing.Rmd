@@ -1,0 +1,211 @@
+---
+title: "DataProcessing"
+author: "Leo Kitchell"
+date: "11/27/2021"
+output: html_document
+---
+
+# Purpose
+The code below creates models to predict neighborhood (census tract) level gentrification between 2010-2014 and 2015-2019 using Airbnb data.
+
+## Installing Packages & Libraries
+```{r}
+library(stratification)
+library(caTools)
+library(tm)
+library(SnowballC)
+library(readr) 
+library(randomForest)
+```
+
+
+## Reading Data and Final Compilation
+Data is aggregated at the airbnb listing level. Some final data collection steps are performed here because the data files were too large to push to github
+```{r}
+runtime$readingData <- Sys.time()
+### Stacking Review Data
+path = "./InsideAirbnbData/Zipped_Data/"
+file_list = list.files(path,'*.csv')
+review_data <- array()
+for (variable in file_list) {
+  if(grepl("reviews",variable,fixed=TRUE)){
+      review_data <- rbind(review_data,read.csv(paste(path,variable,sep = "")))
+  } 
+}
+
+### Eliminating unnecessary data. Prefix "t" added representing they will be used for the text analysis portion. Alternately, "t" for tiny.
+load("Compiled_Thesis_Data.RData")
+tReviewData <- review_data %>% filter(!is.na(id)) #removes rows with NA listing IDs. 
+tReviewData <- tReviewData %>% filter(date >= as.Date("2015-01-01") & date <= as.Date("2019-12-31"))  #only keep reviews between census collection time period: 2015-2019
+tReviewData <- tReviewData %>% subset(select = c(listing_id,comments)) #keep only listing_id and text data
+tReviewData <- aggregate(comments ~ listing_id, tReviewData, paste, collapse = " ") #combines all text data for a given listing into one row for that listing
+
+tListingData <- listing_data %>% subset(select = c("id","bedrooms","bathrooms","price","minimum_nights",
+                                                             "review_scores_rating","review_scores_location","license","tractFIPS2010"))
+colnames(tListingData)[which(names(tListingData) == "price")] <- "listing_price" #renames column titled price to "listing_price". Prevents error of repeated column name in tSparse
+
+airbnbData <- inner_join(tListingData,tReviewData,by = c("id"="listing_id"))
+
+tCensusData <- censusDataWithDistributionsWide %>% subset(select = c("tractFIPS","NAME.2014","totalPop.2014","popGrowth","gentrificationChange"))
+
+combinedData <- inner_join(tCensusData,airbnbData,by = c("tractFIPS"="tractFIPS2010"))
+runtime$combiningData <- runtime$combiningData - Sys.time()
+```
+
+## Cleaning Text Data
+```{r}
+runtime$corpus <- Sys.time()
+corpus <- Corpus(VectorSource(combinedData[1:500,]$comments))
+corpus <- tm_map(corpus, PlainTextDocument)
+corpus <- tm_map(corpus, tolower)
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeWords, c("airbnb",stopwords("english")))  #remove stopwords and add "airbnb" to stopword list
+corpus <- tm_map(corpus, stemDocument)
+runtime$corpus <- Sys.time() - runtime$corpus
+```
+
+## Adding Matrix of Word Frequencies to data
+```{r}
+frequencies <- DocumentTermMatrix(corpus)
+sparse <- removeSparseTerms(frequencies, 0.995) #removes words which show up very few times across reviews.
+tSparse <- as.data.frame(as.matrix(sparse))
+colnames(tSparse) <- make.names(colnames(tSparse))
+```
+
+## Supplemental Data Cleaning
+```{r}
+predictorData <- subset(combinedData[1:500,],select = c(gentrificationChange))#,totalPop.2014,popGrowth))
+tSparse <- cbind(predictorData,tSparse)
+
+tSparse <- tSparse[,!duplicated(colnames(tSparse))] #removing columns with duplicate names
+sum(!complete.cases(tSparse)) #number of rows with NAs.
+```
+
+## Splitting Data into Testing and Training Sets
+```{r}
+index <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.7)
+trainSparse <- tSparse[index, ]
+testSparse <- tSparse[-index, ]
+```
+
+
+```{r}
+runtime$RF <- Sys.time()
+
+mean(tSparse$gentrificationChange)  #0.254 is the baseline accuracy
+RF_model = randomForest(gentrificationChange ~ ., data=trainSparse,na.action = na.omit)
+predictRF = predict(RF_model, newdata=testSparse)
+
+hist(predictRF)
+varImpPlot(RF_model, n.var = 15)
+save(RF_model,file = "RF_model.RData")
+runtime$RF <- Sys.time() - runtime$RF
+paste("finished at:",Sys.time())
+```
+
+$RF
+Time difference of 1.6057194 mins
+
+$RF300
+Time difference of 1.253781 mins
+
+$RF1000
+Time difference of 6.978322 mins
+
+$RF150
+Time difference of 1.977194 mins
+Time difference of 1.605971 mins (ran again)
+
+
+## Interactive Map Example
+Not necessary for current process
+```{r,eval=FALSE}
+pal <- colorQuantile("Greens", NULL, n = 6)
+popup <- paste0("Gentrification Change: ", as.character(round(cityCensusData$gentrificationChange,4)*100))
+leaflet() %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  addPolygons(data = cityCensusData, 
+              fillColor = ~pal(cityCensusData$gentrificationChange), 
+              fillOpacity = 0.7, 
+              weight = 0.2, 
+              popup = popup) %>%
+  addLegend(pal = pal, 
+            values = cityCensusData$gentrificationChange, 
+            position = "bottomright", 
+            title = paste("Gentrification in",cityCensusData$CBSA.Title.2014[1]))
+```
+
+### Identifying tracts which changed between 2000 and 2010
+Not necessary for current process
+```{r}
+listing_data$stateAndCountyFIPSChange <- listing_data$stateAndCountyFIPS2000!=listing_data$stateAndCountyFIPS2010 #identifying tracts which changed between 2000 and 2010
+editedListingData <- filter(listing_data,stateAndCountyFIPSChange==TRUE)
+table(editedListingData$stateAndCountyFIPS2010,editedListingData$stateAndCountyFIPS2000)
+```
+
+
+# Homework
+Have gentrification method for each block
+map and look at what the gentrification distribution looks like by Friday. Have mapped for 5 cities. IF possible have for 28 cities. Push to github.
+
+Pick a time window. Skim through past papers and figure out 
+Calculate min and max of reviews time date. If the first dates are 
+
+Think about the X variables. Airbnb review data, airbnb text data, number of airbnbs, population. 
+
+Restrict review data to be within the range 2015-2019. 
+
+
+```{r}
+#When I run my conversion I'll have a mapping from one airbnb to a block. I'll have two observations, one in 2010 block and one in 2000 block. That #way I know which 2000 and 2010 tracts its in. 
+#Condition on all the observations that have no change in the tract from 2000 to 2010.
+
+#Order of Operations
+#Code the maplinks from lat and longitude to blocks and tracts
+#Pin down gentrification metric
+#Pin down explanatory variables
+  #Controls: population growth. Avg airbnb rating. Location rating on airbnb. 
+  # Run a specification with fixed effects and not
+  # A decision tree will rank which variables are most important
+
+#TFIDF? Term frequency inverse document frequency. R should have built in function. It normalizes word frequency. 
+#Monday Nov 15th send a rought draft to Gelman. 
+```
+
+
+
+Will need to create a table with summary statistics of all variables
+  Number of observations
+  Mean
+  Min 
+  Max
+  Median
+
+Histogram of Gentrification
+Map as an example showing the distribution
+
+Three groups of variables
+  Traditional Airbnb
+    Overall Stars
+    Location Stars
+    Number of Airbnbs
+    Airbnb Price
+  Non Traditional Airbnb
+    Words
+  Controls Variables at the Census Tract Level
+    Population Change 2014-2019
+    
+    Look at Jain Paper for controls
+    
+  
+What data frame do I need to run this model:
+    Multiple objects. 
+      Gentrification Variable
+        Column with a row for each tract. Can be in the same data frame as the non word x variable.
+      Non word X Variables
+        Data frame with a row each tract. 
+      
+      Matrix which have a column for each word used in any review in any of the 28 MSAs
+        Each row will be a census tract. The value of each cell will either be a quantifier for how many times the word shows up, or it could be a 1 or 0 for whether it shows up.
+        
+Mash all reviews together for each census tract. 
