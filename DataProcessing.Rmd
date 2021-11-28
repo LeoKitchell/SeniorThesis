@@ -9,20 +9,21 @@ output: html_document
 The code below creates models to predict neighborhood (census tract) level gentrification between 2010-2014 and 2015-2019 using Airbnb data.
 
 ## Installing Packages & Libraries
-```{r}
+```{r,warnings = FALSE}
 library(stratification)
 library(caTools)
 library(tm)
 library(SnowballC)
 library(readr) 
 library(randomForest)
+library(tidyverse)
 ```
 
 
 ## Reading Data and Final Compilation
 Data is aggregated at the airbnb listing level. Some final data collection steps are performed here because the data files were too large to push to github
 ```{r}
-runtime$readingData <- Sys.time()
+runtime$finalCompilation <- Sys.time()
 ### Stacking Review Data
 path = "./InsideAirbnbData/Zipped_Data/"
 file_list = list.files(path,'*.csv')
@@ -49,13 +50,15 @@ airbnbData <- inner_join(tListingData,tReviewData,by = c("id"="listing_id"))
 tCensusData <- censusDataWithDistributionsWide %>% subset(select = c("tractFIPS","NAME.2014","totalPop.2014","popGrowth","gentrificationChange"))
 
 combinedData <- inner_join(tCensusData,airbnbData,by = c("tractFIPS"="tractFIPS2010"))
-runtime$combiningData <- runtime$combiningData - Sys.time()
+runtime$finalCompilation <- runtime$finalCompilation- Sys.time()
 ```
 
 ## Cleaning Text Data
 ```{r}
 runtime$corpus <- Sys.time()
-corpus <- Corpus(VectorSource(combinedData[1:500,]$comments))
+sampleSize <- 200
+combinedData1 <-combinedData[sample(nrow(combinedData), sampleSize), ]
+corpus <- Corpus(VectorSource(combinedData1$comments))
 corpus <- tm_map(corpus, PlainTextDocument)
 corpus <- tm_map(corpus, tolower)
 corpus <- tm_map(corpus, removePunctuation)
@@ -74,7 +77,7 @@ colnames(tSparse) <- make.names(colnames(tSparse))
 
 ## Supplemental Data Cleaning
 ```{r}
-predictorData <- subset(combinedData[1:500,],select = c(gentrificationChange))#,totalPop.2014,popGrowth))
+predictorData <- subset(combinedData1,select = c(gentrificationChange))#,totalPop.2014,popGrowth))
 tSparse <- cbind(predictorData,tSparse)
 
 tSparse <- tSparse[,!duplicated(colnames(tSparse))] #removing columns with duplicate names
@@ -92,7 +95,7 @@ testSparse <- tSparse[-index, ]
 ```{r}
 runtime$RF <- Sys.time()
 
-mean(tSparse$gentrificationChange)  #0.254 is the baseline accuracy
+mean(tSparse$gentrificationChange)  #baseline accuracy??
 RF_model = randomForest(gentrificationChange ~ ., data=trainSparse,na.action = na.omit)
 predictRF = predict(RF_model, newdata=testSparse)
 
