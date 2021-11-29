@@ -55,10 +55,22 @@ combinedData <- inner_join(tCensusData,airbnbData,by = c("tractFIPS"="tractFIPS2
 runtime$finalCompilation <- runtime$finalCompilation- Sys.time()
 ```
 
+
+# To Do (Not in order):
+ 1) Try different values of sparsity. .95,.99,.995.   Look at the MSE for each model. Take the mean(MSE) for each model.
+ 2) Aggregate to the tract level. 
+          Involves creating new variables: number of airbnbs per tract, average rating for listings in the tract, average price,
+          average number of bedrooms with na.rm = TRUE, average star rating for the location. Probably use collapse to get all the words for the tract,
+          and use summarize to get the summary statistics like average and n() for the other variables
+ 3) run model with all variables so i cans ee the relative importance
+ 4) add a list of city names as stopwords. Also state names. 
+ 5) Run model with TFDIF
+ 6) Investigate packages that will allow parallel processing (caret? foreach?)
+
 ## Cleaning Text Data
 ```{r}
 runtime$corpus <- Sys.time()
-sampleSize <- nrow(combinedData)
+sampleSize <- 2000#nrow(combinedData)
 combinedDataSample <-combinedData[sample(nrow(combinedData), sampleSize), ]
 
 corpus <- Corpus(VectorSource(combinedDataSample$comments))
@@ -74,6 +86,7 @@ runtime$corpus <- Sys.time() - runtime$corpus
 ```{r}
 frequencies <- DocumentTermMatrix(corpus)
 sparse <- removeSparseTerms(frequencies, 0.98) #removes words which show up very few times across reviews.
+#TODO: try different values of sparsity. .95,.99,.995.   Look at the MSE for each model. Take the mean(MSE) for each model.
 tSparse <- as.data.frame(as.matrix(sparse))
 colnames(tSparse) <- make.names(colnames(tSparse))
 ```
@@ -82,7 +95,7 @@ colnames(tSparse) <- make.names(colnames(tSparse))
 ```{r}
 predictorData <- subset(combinedDataSample,select = c(gentrificationChange))#,totalPop.2014,popGrowth))
 tSparse <- cbind(predictorData,tSparse)
-
+### Group tsparse by the tracts . Can take the average of the population because it is the same at the listing and the tract level (i.e. the listing data is just the tract data)
 tSparse <- tSparse[,!duplicated(colnames(tSparse))] #removing columns with duplicate names
 
 sum(!complete.cases(tSparse)) #number of rows with NAs. (There are 500 total)
@@ -105,24 +118,21 @@ testSparse <- tSparse[-index, ]
 runtime$RF <- Sys.time()
 mean(tSparse$gentrificationChange,na.rm = TRUE)  #baseline accuracy??
 RF_model = randomForest(gentrificationChange ~ ., data=trainSparse,na.action = na.omit)
-predictRF = predict(RF_model, newdata=testSparse)
-
-hist(predictRF)
-varImpPlot(RF_model, n.var = 15)
 save(RF_model,file = "RF_model.RData")
+
+predictRF = predict(RF_model, newdata=testSparse)
+hist(predictRF)
+varImpPlot(RF_model, n.var = 25)
+RF_model$rsq
+
 runtime$RF <- Sys.time() - runtime$RF
 paste("finished at:",Sys.time())
 ```
 
-$RF
-Time difference of 1.6057194 mins
-
 $RF300
 Time difference of 1.253781 mins
-
 $RF1000
 Time difference of 6.978322 mins
-
 $RF150
 Time difference of 1.977194 mins
 Time difference of 1.605971 mins (ran again)
@@ -136,12 +146,12 @@ ridgeReg <- cv.glmnet(x = x[],
                       alpha = 0)
 bestLambdaRidge <- ridgeReg$lambda.min
 bestFitRidge <- ridgeReg$glmnet.fit
-bestRidgeReg <- glmnet(x[], y[,], alpha = 0, lambda = bestLambda)
+bestRidgeReg <- glmnet(x[], y[,], alpha = 0, lambda = bestLambdaRidge)
 
 testSparse$predictedGentrification <- predict(bestRidgeReg,
                                               s = bestLambdaRidge,
                                               newx =as.matrix(subset(testSparse,
-                                                                      select = -c(gentrificationChange,predictedGentrification)))[])
+                                                                      select = -c(gentrificationChange)))[])
 rssRidge <- sum((testSparse$predictedGentrification - testSparse$gentrificationChange)^2)
 tssRidge <- sum((testSparse$gentrificationChange - mean(testSparse$gentrificationChange))^2)
 rsqRidge <- 1 - rssRidge/tssRidge
@@ -151,6 +161,7 @@ plot(ridgeReg)
 
 ## lasso Regression
 ```{r}
+runtime$lasso <- Sys.time()
 x <- as.matrix(subset(trainSparse, select = -gentrificationChange))
 y <- subset(trainSparse, select = gentrificationChange)
 lassoReg <- cv.glmnet(x = x[],
@@ -158,7 +169,7 @@ lassoReg <- cv.glmnet(x = x[],
                       alpha = 1)
 bestLambdaLasso <- lassoReg$lambda.min
 bestFitLasso <- lassoReg$glmnet.fit
-bestLassoReg <- glmnet(x[], y[,], alpha = 1, lambda = bestLambda)
+bestLassoReg <- glmnet(x[], y[,], alpha = 1, lambda = bestLambdaLasso)
 
 testSparse$predictedGentrification <- predict(bestlassoReg,
                                               s = bestLambdalasso,
@@ -169,45 +180,11 @@ tsslasso <- sum((testSparse$gentrificationChange - mean(testSparse$gentrificatio
 rsqlasso <- 1 - rsslasso/tsslasso
 rsqlasso
 plot(lassoReg)
-```
-
-## Interactive Map Example
-Not necessary for current process
-```{r,eval=FALSE}
-pal <- colorQuantile("Greens", NULL, n = 6)
-popup <- paste0("Gentrification Change: ", as.character(round(cityCensusData$gentrificationChange,4)*100))
-leaflet() %>%
-  addProviderTiles("CartoDB.Positron") %>%
-  addPolygons(data = cityCensusData, 
-              fillColor = ~pal(cityCensusData$gentrificationChange), 
-              fillOpacity = 0.7, 
-              weight = 0.2, 
-              popup = popup) %>%
-  addLegend(pal = pal, 
-            values = cityCensusData$gentrificationChange, 
-            position = "bottomright", 
-            title = paste("Gentrification in",cityCensusData$CBSA.Title.2014[1]))
-```
-
-### Identifying tracts which changed between 2000 and 2010
-Not necessary for current process
-```{r}
-listing_data$stateAndCountyFIPSChange <- listing_data$stateAndCountyFIPS2000!=listing_data$stateAndCountyFIPS2010 #identifying tracts which changed between 2000 and 2010
-editedListingData <- filter(listing_data,stateAndCountyFIPSChange==TRUE)
-table(editedListingData$stateAndCountyFIPS2010,editedListingData$stateAndCountyFIPS2000)
+runtime$lasso <- Sys.time() - runtime$lasso
 ```
 
 
-# Homework
-Have gentrification method for each block
-map and look at what the gentrification distribution looks like by Friday. Have mapped for 5 cities. IF possible have for 28 cities. Push to github.
 
-Pick a time window. Skim through past papers and figure out 
-Calculate min and max of reviews time date. If the first dates are 
-
-Think about the X variables. Airbnb review data, airbnb text data, number of airbnbs, population. 
-
-Restrict review data to be within the range 2015-2019. 
 
 
 ```{r}
