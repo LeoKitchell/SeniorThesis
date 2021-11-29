@@ -17,6 +17,7 @@ library(SnowballC)
 library(readr) 
 library(randomForest)
 library(tidyverse)
+library(glmnet)
 ```
 
 
@@ -32,14 +33,9 @@ review_data <- array()
 review_data2 <- array()
 for (variable in file_list) {
   if(grepl("reviews",variable,fixed=TRUE)){
-      #review_data <- rbind(review_data,read.csv(paste(path,variable,sep = "")))
-      review_data2 <- rbind(review_data2,read.csv(paste(path,variable,sep = ""),encoding = "UTF-16LE"))
+      review_data <- rbind(review_data2,read.csv(paste(path,variable,sep = ""),encoding = "UTF-8"))
   } 
 }
-
-file <- unzip(paste(path,"reviews_NewYorkCity.csv.zip",sep=""),exdir = getwd())
-filter(review_data,review_data$comments)
-
 
 ### Eliminating unnecessary data. Prefix "t" added representing they will be used for the text analysis portion. Alternately, "t" for tiny.
 load("Compiled_Thesis_Data.RData")
@@ -63,13 +59,14 @@ runtime$finalCompilation <- runtime$finalCompilation- Sys.time()
 ## Cleaning Text Data
 ```{r}
 runtime$corpus <- Sys.time()
-sampleSize <- 800#nrow(combinedData)
+sampleSize <- 2000#nrow(combinedData)
 combinedDataSample <-combinedData[sample(nrow(combinedData), sampleSize), ]
+
 corpus <- Corpus(VectorSource(combinedDataSample$comments))
 corpus <- tm_map(corpus, PlainTextDocument)
 corpus <- tm_map(corpus, tolower)
 corpus <- tm_map(corpus, removePunctuation)
-corpus <- tm_map(corpus, removeWords, c("airbnb",stopwords("english")))  #remove stopwords and add "airbnb" to stopword list
+corpus <- tm_map(corpus, removeWords, c("airbnb",stopwords("english"),stopwords("spanish")))  #remove stopwords and add "airbnb" to stopword list
 corpus <- tm_map(corpus, stemDocument)
 runtime$corpus <- Sys.time() - runtime$corpus
 ```
@@ -88,7 +85,9 @@ predictorData <- subset(combinedDataSample,select = c(gentrificationChange))#,to
 tSparse <- cbind(predictorData,tSparse)
 
 tSparse <- tSparse[,!duplicated(colnames(tSparse))] #removing columns with duplicate names
+
 sum(!complete.cases(tSparse)) #number of rows with NAs. (There are 500 total)
+combinedDataSample<-(combinedDataSample[!complete.cases(tSparse),]) #removing rows which contain 
 incompleteCases<-(tSparse[!complete.cases(tSparse),])
 tSparse<-(tSparse[complete.cases(tSparse),]) #removes all row without complete cases (500 when running on entire sample)
 
@@ -100,8 +99,6 @@ index <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.7) #splits 70% of 
 trainSparse <- tSparse[index, ]
 testSparse <- tSparse[-index, ]
 save(list = c("trainSparse","testSparse","tSparse","combinedData"), file = "preModel.RData")
-trainSparse
-filter(trainSparse,trainSparse$baã.o>0)
 ```
 
 ## Running Random Forest Model
@@ -112,10 +109,11 @@ RF_model = randomForest(gentrificationChange ~ ., data=trainSparse,na.action = n
 predictRF = predict(RF_model, newdata=testSparse)
 
 hist(predictRF)
-varImpPlot(RF_model, n.var = 15)
+varImpPlot(RF_model, n.var = 30)
 save(RF_model,file = "RF_model.RData")
 runtime$RF <- Sys.time() - runtime$RF
 paste("finished at:",Sys.time())
+RF_model$
 ```
 
 $RF
@@ -131,6 +129,48 @@ $RF150
 Time difference of 1.977194 mins
 Time difference of 1.605971 mins (ran again)
 
+## lasso Regression
+```{r}
+x <- as.matrix(subset(trainSparse, select = -gentrificationChange))
+y <- subset(trainSparse, select = gentrificationChange)
+lassoReg <- cv.glmnet(x = x[],
+                      y = y[,],
+                      alpha = 1)
+bestLambdaLasso <- lassoReg$lambda.min
+bestFitLasso <- lassoReg$glmnet.fit
+bestLassoReg <- glmnet(x[], y[,], alpha = 1, lambda = bestLambda)
+
+testSparse$predictedGentrification <- predict(bestlassoReg,
+                                              s = bestLambdalasso,
+                                              newx = as.matrix(subset(testSparse, 
+                                                                      select = -c(gentrificationChange,predictedGentrification)))[])
+rsslasso <- sum((testSparse$predictedGentrification - testSparse$gentrificationChange)^2)
+tsslasso <- sum((testSparse$gentrificationChange - mean(testSparse$gentrificationChange))^2)
+rsqlasso <- 1 - rsslasso/tsslasso
+rsqlasso
+plot(lassoReg)
+```
+
+## Ridge Regression
+```{r}
+x <- as.matrix(subset(trainSparse, select = -gentrificationChange))
+y <- subset(trainSparse, select = gentrificationChange)
+ridgeReg <- cv.glmnet(x = x[],
+                      y = y[,],
+                      alpha = 0)
+bestLambdaRidge <- ridgeReg$lambda.min
+bestFitRidge <- ridgeReg$glmnet.fit
+bestRidgeReg <- glmnet(x[], y[,], alpha = 0, lambda = bestLambda)
+
+testSparse$predictedGentrification <- predict(bestRidgeReg,
+                                              s = bestLambdaRidge,
+                                              newx =as.matrix(subset(testSparse, select = -gentrificationChange))[])
+rssRidge <- sum((testSparse$predictedGentrification - testSparse$gentrificationChange)^2)
+tssRidge <- sum((testSparse$gentrificationChange - mean(testSparse$gentrificationChange))^2)
+rsqRidge <- 1 - rssRidge/tssRidge
+rsqRidge
+plot(ridgeReg)
+```
 
 ## Interactive Map Example
 Not necessary for current process
