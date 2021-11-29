@@ -24,16 +24,15 @@ library(glmnet)
 ## Reading Data and Final Compilation
 Data is aggregated at the airbnb listing level. Some final data collection steps are performed here because the data files were too large to push to github
 ```{r}
-#runtime <- list()
+runtime <- list()
 runtime$finalCompilation <- Sys.time()
 ### Stacking Review Data
 path = "./InsideAirbnbData/Zipped_Data/"
 file_list = list.files(path,'*.csv')
 review_data <- array()
-review_data2 <- array()
 for (variable in file_list) {
   if(grepl("reviews",variable,fixed=TRUE)){
-      review_data <- rbind(review_data2,read.csv(paste(path,variable,sep = ""),encoding = "UTF-8"))
+      review_data <- rbind(review_data,read.csv(paste(path,variable,sep = ""),encoding = "UTF-8"))
   } 
 }
 
@@ -59,7 +58,7 @@ runtime$finalCompilation <- runtime$finalCompilation- Sys.time()
 ## Cleaning Text Data
 ```{r}
 runtime$corpus <- Sys.time()
-sampleSize <- 2000#nrow(combinedData)
+sampleSize <- nrow(combinedData)
 combinedDataSample <-combinedData[sample(nrow(combinedData), sampleSize), ]
 
 corpus <- Corpus(VectorSource(combinedDataSample$comments))
@@ -74,7 +73,7 @@ runtime$corpus <- Sys.time() - runtime$corpus
 ## Adding Matrix of Word Frequencies to data
 ```{r}
 frequencies <- DocumentTermMatrix(corpus)
-sparse <- removeSparseTerms(frequencies, 0.99) #removes words which show up very few times across reviews.
+sparse <- removeSparseTerms(frequencies, 0.98) #removes words which show up very few times across reviews.
 tSparse <- as.data.frame(as.matrix(sparse))
 colnames(tSparse) <- make.names(colnames(tSparse))
 ```
@@ -98,7 +97,7 @@ tSparse<-(tSparse[complete.cases(tSparse),]) #removes all row without complete c
 index <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.7) #splits 70% of the data into a trainng set and 30% into a test set.
 trainSparse <- tSparse[index, ]
 testSparse <- tSparse[-index, ]
-save(list = c("trainSparse","testSparse","tSparse","combinedData"), file = "preModel.RData")
+#save(list = c("trainSparse","testSparse","tSparse","combinedData"), file = "preModel.RData")
 ```
 
 ## Running Random Forest Model
@@ -109,11 +108,10 @@ RF_model = randomForest(gentrificationChange ~ ., data=trainSparse,na.action = n
 predictRF = predict(RF_model, newdata=testSparse)
 
 hist(predictRF)
-varImpPlot(RF_model, n.var = 30)
+varImpPlot(RF_model, n.var = 15)
 save(RF_model,file = "RF_model.RData")
 runtime$RF <- Sys.time() - runtime$RF
 paste("finished at:",Sys.time())
-RF_model$
 ```
 
 $RF
@@ -128,6 +126,28 @@ Time difference of 6.978322 mins
 $RF150
 Time difference of 1.977194 mins
 Time difference of 1.605971 mins (ran again)
+
+## Ridge Regression
+```{r}
+x <- as.matrix(subset(trainSparse, select = -gentrificationChange))
+y <- subset(trainSparse, select = gentrificationChange)
+ridgeReg <- cv.glmnet(x = x[],
+                      y = y[,],
+                      alpha = 0)
+bestLambdaRidge <- ridgeReg$lambda.min
+bestFitRidge <- ridgeReg$glmnet.fit
+bestRidgeReg <- glmnet(x[], y[,], alpha = 0, lambda = bestLambda)
+
+testSparse$predictedGentrification <- predict(bestRidgeReg,
+                                              s = bestLambdaRidge,
+                                              newx =as.matrix(subset(testSparse,
+                                                                      select = -c(gentrificationChange,predictedGentrification)))[])
+rssRidge <- sum((testSparse$predictedGentrification - testSparse$gentrificationChange)^2)
+tssRidge <- sum((testSparse$gentrificationChange - mean(testSparse$gentrificationChange))^2)
+rsqRidge <- 1 - rssRidge/tssRidge
+rsqRidge
+plot(ridgeReg)
+```
 
 ## lasso Regression
 ```{r}
@@ -149,27 +169,6 @@ tsslasso <- sum((testSparse$gentrificationChange - mean(testSparse$gentrificatio
 rsqlasso <- 1 - rsslasso/tsslasso
 rsqlasso
 plot(lassoReg)
-```
-
-## Ridge Regression
-```{r}
-x <- as.matrix(subset(trainSparse, select = -gentrificationChange))
-y <- subset(trainSparse, select = gentrificationChange)
-ridgeReg <- cv.glmnet(x = x[],
-                      y = y[,],
-                      alpha = 0)
-bestLambdaRidge <- ridgeReg$lambda.min
-bestFitRidge <- ridgeReg$glmnet.fit
-bestRidgeReg <- glmnet(x[], y[,], alpha = 0, lambda = bestLambda)
-
-testSparse$predictedGentrification <- predict(bestRidgeReg,
-                                              s = bestLambdaRidge,
-                                              newx =as.matrix(subset(testSparse, select = -gentrificationChange))[])
-rssRidge <- sum((testSparse$predictedGentrification - testSparse$gentrificationChange)^2)
-tssRidge <- sum((testSparse$gentrificationChange - mean(testSparse$gentrificationChange))^2)
-rsqRidge <- 1 - rssRidge/tssRidge
-rsqRidge
-plot(ridgeReg)
 ```
 
 ## Interactive Map Example
