@@ -244,7 +244,6 @@ hist(censusDataWithDistributionsWide$gentrificationChange,breaks = 20)
 censusDataWithDistributionsWide <- censusDataWithDistributionsWide %>% mutate(popGrowth = ((totalPop.2019 - totalPop.2014)/totalPop.2014))
 ```
 
-
 ### Pulling Geometries to Map
 ```{r,results='hide'}
 runtime$mapping <- Sys.time()
@@ -258,7 +257,7 @@ tractGeom1 <- tractGeom %>% subset(select=c("GEOID","geometry"))
 censusDataWithDistributionsWideGeoms <- geo_join(data_frame = censusDataWithDistributionsWide,spatial_data = tractGeom1,by_df = "tractFIPS",by_sp = "GEOID")
 ```
 
-## Mapping Gentrification Index by MSA
+## Mapping Gentrification Index by MSA - All Tracts
 ```{r, warning=FALSE}
 ii=1
 cityMaps <- ""
@@ -268,11 +267,31 @@ for (MSA in uniqueMSAs$CBSA.Code) {
   ii<-ii+1
 }
 runtime$mapping <- Sys.time() - runtime$mapping
-
+```
+## Restricting to Gentrifiable Neighborhoods
+Following Ding (2016) we will restrict our analysis to only include neighborhoods which had median household income below the citywide median at the beginning of our period of analysis (2009-2014)
+```{r}
+gentrifiableCensusDataWithDistributionsWideGeoms <- censusDataWithDistributionsWideGeoms %>% filter(pctilemedHHInc.2014<0.5)
+gentrifiableCensusDataWithDistributionsWide <- censusDataWithDistributionsWide %>% filter(pctilemedHHInc.2014<0.5)
 ```
 
+## Mapping Gentrification Index by MSA - Gentrifiable Tracts
+```{r, warning=FALSE}
+ii=1
+gentrifiableCityMaps <- ""
+for (MSA in uniqueMSAs$CBSA.Code) {
+  cityCensusData <- filter(gentrifiableCensusDataWithDistributionsWideGeoms,
+                           gentrifiableCensusDataWithDistributionsWideGeoms$CBSA.Code.2014==MSA)
+  if (nrow(cityCensusData)>0) {
+    cityMaps[ii] <- plot(cityCensusData["gentrificationChange"],
+                         main=paste("Gentrification Change 2014-2019 in",
+                                    cityCensusData$CBSA.Title.2014[1]),)}
+  ii<-ii+1
+}
+runtime$mapping <- Sys.time() - runtime$mapping
+```
 # Saving Relevant Data 
 Saving compiled data to a .RData file for processing in a separate .Rmd file. 
 ```{r}
-save(list = c("listing_data","censusDataWithDistributionsWide"), file = "Compiled_Thesis_Data.RData")
+save(list = c("listing_data","gentrifiableCensusDataWithDistributionsWide"), file = "Compiled_Thesis_Data.RData")
 ```

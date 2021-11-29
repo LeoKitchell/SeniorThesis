@@ -23,16 +23,23 @@ library(tidyverse)
 ## Reading Data and Final Compilation
 Data is aggregated at the airbnb listing level. Some final data collection steps are performed here because the data files were too large to push to github
 ```{r}
+#runtime <- list()
 runtime$finalCompilation <- Sys.time()
 ### Stacking Review Data
 path = "./InsideAirbnbData/Zipped_Data/"
 file_list = list.files(path,'*.csv')
 review_data <- array()
+review_data2 <- array()
 for (variable in file_list) {
   if(grepl("reviews",variable,fixed=TRUE)){
-      review_data <- rbind(review_data,read.csv(paste(path,variable,sep = "")))
+      #review_data <- rbind(review_data,read.csv(paste(path,variable,sep = "")))
+      review_data2 <- rbind(review_data2,read.csv(paste(path,variable,sep = ""),encoding = "UTF-16LE"))
   } 
 }
+
+file <- unzip(paste(path,"reviews_NewYorkCity.csv.zip",sep=""),exdir = getwd())
+filter(review_data,review_data$comments)
+
 
 ### Eliminating unnecessary data. Prefix "t" added representing they will be used for the text analysis portion. Alternately, "t" for tiny.
 load("Compiled_Thesis_Data.RData")
@@ -47,7 +54,7 @@ colnames(tListingData)[which(names(tListingData) == "price")] <- "listing_price"
 
 airbnbData <- inner_join(tListingData,tReviewData,by = c("id"="listing_id"))
 
-tCensusData <- censusDataWithDistributionsWide %>% subset(select = c("tractFIPS","NAME.2014","totalPop.2014","popGrowth","gentrificationChange"))
+tCensusData <- gentrifiableCensusDataWithDistributionsWide %>% subset(select = c("tractFIPS","NAME.2014","totalPop.2014","popGrowth","gentrificationChange"))
 
 combinedData <- inner_join(tCensusData,airbnbData,by = c("tractFIPS"="tractFIPS2010"))
 runtime$finalCompilation <- runtime$finalCompilation- Sys.time()
@@ -56,9 +63,9 @@ runtime$finalCompilation <- runtime$finalCompilation- Sys.time()
 ## Cleaning Text Data
 ```{r}
 runtime$corpus <- Sys.time()
-sampleSize <- 200
-combinedData1 <-combinedData[sample(nrow(combinedData), sampleSize), ]
-corpus <- Corpus(VectorSource(combinedData1$comments))
+sampleSize <- 800#nrow(combinedData)
+combinedDataSample <-combinedData[sample(nrow(combinedData), sampleSize), ]
+corpus <- Corpus(VectorSource(combinedDataSample$comments))
 corpus <- tm_map(corpus, PlainTextDocument)
 corpus <- tm_map(corpus, tolower)
 corpus <- tm_map(corpus, removePunctuation)
@@ -70,32 +77,37 @@ runtime$corpus <- Sys.time() - runtime$corpus
 ## Adding Matrix of Word Frequencies to data
 ```{r}
 frequencies <- DocumentTermMatrix(corpus)
-sparse <- removeSparseTerms(frequencies, 0.995) #removes words which show up very few times across reviews.
+sparse <- removeSparseTerms(frequencies, 0.99) #removes words which show up very few times across reviews.
 tSparse <- as.data.frame(as.matrix(sparse))
 colnames(tSparse) <- make.names(colnames(tSparse))
 ```
 
 ## Supplemental Data Cleaning
 ```{r}
-predictorData <- subset(combinedData1,select = c(gentrificationChange))#,totalPop.2014,popGrowth))
+predictorData <- subset(combinedDataSample,select = c(gentrificationChange))#,totalPop.2014,popGrowth))
 tSparse <- cbind(predictorData,tSparse)
 
 tSparse <- tSparse[,!duplicated(colnames(tSparse))] #removing columns with duplicate names
-sum(!complete.cases(tSparse)) #number of rows with NAs.
+sum(!complete.cases(tSparse)) #number of rows with NAs. (There are 500 total)
+incompleteCases<-(tSparse[!complete.cases(tSparse),])
+tSparse<-(tSparse[complete.cases(tSparse),]) #removes all row without complete cases (500 when running on entire sample)
+
 ```
 
 ## Splitting Data into Testing and Training Sets
 ```{r}
-index <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.7)
+index <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.7) #splits 70% of the data into a trainng set and 30% into a test set.
 trainSparse <- tSparse[index, ]
 testSparse <- tSparse[-index, ]
+save(list = c("trainSparse","testSparse","tSparse","combinedData"), file = "preModel.RData")
+trainSparse
+filter(trainSparse,trainSparse$baã.o>0)
 ```
 
-
+## Running Random Forest Model
 ```{r}
 runtime$RF <- Sys.time()
-
-mean(tSparse$gentrificationChange)  #baseline accuracy??
+mean(tSparse$gentrificationChange,na.rm = TRUE)  #baseline accuracy??
 RF_model = randomForest(gentrificationChange ~ ., data=trainSparse,na.action = na.omit)
 predictRF = predict(RF_model, newdata=testSparse)
 
