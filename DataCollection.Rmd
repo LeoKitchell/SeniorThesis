@@ -293,5 +293,5 @@ runtime$mapping <- Sys.time() - runtime$mapping
 # Saving Relevant Data 
 Saving compiled data to a .RData file for processing in a separate .Rmd file. 
 ```{r}
-save(list = c("listing_data","gentrifiableCensusDataWithDistributionsWide"), file = "Compiled_Thesis_Data.RData")
+save(list = c("listing_data","gentrifiableCensusDataWithDistributionsWide","includedStates"), file = "Compiled_Thesis_Data.RData")
 ```

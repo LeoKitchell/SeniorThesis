@@ -18,6 +18,7 @@ library(readr)
 library(randomForest)
 library(tidyverse)
 library(glmnet)
+
 ```
 
 
@@ -49,7 +50,8 @@ colnames(tListingData)[which(names(tListingData) == "price")] <- "listing_price"
 
 airbnbData <- inner_join(tListingData,tReviewData,by = c("id"="listing_id"))
 
-tCensusData <- gentrifiableCensusDataWithDistributionsWide %>% subset(select = c("tractFIPS","NAME.2014","totalPop.2014","popGrowth","gentrificationChange"))
+tCensusData <- gentrifiableCensusDataWithDistributionsWide %>% subset(select = 
+                                                                        c("tractFIPS","NAME.2014","totalPop.2014","popGrowth","gentrificationChange"))
 
 combinedData <- inner_join(tCensusData,airbnbData,by = c("tractFIPS"="tractFIPS2010"))
 runtime$finalCompilation <- runtime$finalCompilation- Sys.time()
@@ -61,23 +63,40 @@ runtime$finalCompilation <- runtime$finalCompilation- Sys.time()
  2) Aggregate to the tract level. 
           Involves creating new variables: number of airbnbs per tract, average rating for listings in the tract, average price,
           average number of bedrooms with na.rm = TRUE, average star rating for the location. Probably use collapse to get all the words for the tract,
-          and use summarize to get the summary statistics like average and n() for the other variables
- 3) run model with all variables so i cans ee the relative importance
- 4) add a list of city names as stopwords. Also state names. 
+          and use summarize to get the summary statistics like average and n() for the other
+ 3) run model with all variables so i can see the relative importance
+ 4) DONE: add a list of city names as stopwords. Also state names. 
  5) Run model with TFDIF
  6) Investigate packages that will allow parallel processing (caret? foreach?)
+
+## Creating Location Stopwords
+```{r}
+cities <- unlist(str_split(file_list,"listings"))
+cities <- cities[substr(cities,0,1)=="_"]
+cities <- substr(cities,2,nchar(cities)-4)
+cities <- tolower(cities)
+cities <- c(cities,"angeles","york","diego","francisco","minneapolis")
+
+states <- read.csv("./OtherData/State_Fips_Codes.csv",colClasses = "character")
+states <- inner_join(states,includedStates,by = c("State_FIPS"="state_FIPS"))
+states <- tolower(unlist(states$State_Name))
+locationWords <- c("north","east","south","west","northeast","northwest","southeast","southwest",states, cities)
+```
 
 ## Cleaning Text Data
 ```{r}
 runtime$corpus <- Sys.time()
-sampleSize <- 2000#nrow(combinedData)
-combinedDataSample <-combinedData[sample(nrow(combinedData), sampleSize), ]
+#sampleSize <- 2000#nrow(combinedData)
+#combinedDataSample <-combinedData[sample(nrow(combinedData), sampleSize), ]
+#corpus <- Corpus(VectorSource(combinedDataSample$comments))
 
-corpus <- Corpus(VectorSource(combinedDataSample$comments))
+corpus <- Corpus(VectorSource(combinedData$comments))
 corpus <- tm_map(corpus, PlainTextDocument)
-corpus <- tm_map(corpus, tolower)
+
 corpus <- tm_map(corpus, removePunctuation)
-corpus <- tm_map(corpus, removeWords, c("airbnb",stopwords("english"),stopwords("spanish")))  #remove stopwords and add "airbnb" to stopword list
+corpus <- tm_map(corpus, removeWords, "New") #removing for place names (e.g. New York, New Jersey)
+corpus <- tm_map(corpus, tolower)
+corpus <- tm_map(corpus, removeWords, c("airbnb",stopwords("english"),stopwords("spanish"),locationWords))  #remove stopwords
 corpus <- tm_map(corpus, stemDocument)
 runtime$corpus <- Sys.time() - runtime$corpus
 ```
