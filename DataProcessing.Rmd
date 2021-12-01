@@ -43,12 +43,14 @@ for (variable in file_list) {
 
 ## Eliminating Review Data Outside of Time Window and Aggregating to Listing Level
 ```{r}
+runtime$loadAndFilter <- Sys.time()
 ### Prefix "t" added representing they will be used for the text analysis portion. Alternately, "t" for tiny.
 load("Compiled_Thesis_Data.RData")
 tReviewData <- review_data %>% filter(!is.na(id)) #removes rows with NA listing IDs. 
 tReviewData <- tReviewData %>% filter(date >= as.Date("2015-01-01") & date <= as.Date("2019-12-31"))  #only keep reviews between census collection time period: 2015-2019
 tReviewData <- tReviewData %>% subset(select = c(listing_id,comments)) #keep only listing_id and text data
 tReviewData <- aggregate(comments ~ listing_id, tReviewData, paste, collapse = " ") #combines all text data for a given listing into one row for that listing
+runtime$loadAndFilter <- Sys.time() - runtime$loadAndFilter
 ```
 
 ## Merging Airbnb (Listing Level) and Census Data (Tract Level)
@@ -61,8 +63,7 @@ colnames(tListingData)[which(names(tListingData) == "price")] <- "listing_price"
 
 airbnbData <- inner_join(tListingData,tReviewData,by = c("id"="listing_id"))
 
-tCensusData <- gentrifiableCensusDataWithDistributionsWide %>% subset(select = 
-                                                                        c("tractFIPS","NAME.2014","totalPop.2014","popGrowth","gentrificationChange"))
+tCensusData <- gentrifiableCensusDataWithDistributionsWide %>% subset(select =                                                                       c("tractFIPS","NAME.2014","totalPop.2014","popGrowth","gentrificationChange"))
 combinedData  <- inner_join(tCensusData,airbnbData,by = c("tractFIPS"="tractFIPS2010"))
 ```
 
@@ -103,6 +104,8 @@ runtime$finalCompilation <- runtime$finalCompilation- Sys.time()
 
 ## Creating Location Stopwords
 ```{r}
+includedStates <- listing_data %>% group_by(listing_data$state) %>% summarize() %>% drop_na()
+names(includedStates)<-"state_FIPS"
 cities <- unlist(str_split(file_list,"listings"))
 cities <- cities[substr(cities,0,1)=="_"]
 cities <- substr(cities,2,nchar(cities)-4)
@@ -119,11 +122,12 @@ locationWords <- c("north","east","south","west","northeast","northwest","southe
 ```{r}
 runtime$corpus <- Sys.time()
 
-sampleSize <- 500#nrow(combinedData)
+sampleSize <- 10#nrow(combinedData)
 combinedDataSample <-tractData[sample(nrow(tractData), sampleSize), ]
-corpus <- Corpus(VectorSource(combinedDataSample$comments))
 
-corpus <- Corpus(VectorSource(tractData$comments))
+corpus <- Corpus(VectorSource(combinedDataSample$comments)) # REMOVE when running full thing
+#corpus <- Corpus(VectorSource(tractData$comments)) this line takes a long time to run but only needs to be run once
+
 corpus <- tm_map(corpus, PlainTextDocument)
 corpus <- tm_map(corpus, removePunctuation)
 corpus <- tm_map(corpus, removeWords, "New") #removing for place names (e.g. New York, New Jersey)
@@ -136,10 +140,19 @@ runtime$corpus <- Sys.time() - runtime$corpus
 ## Adding Matrix of Word Frequencies to data
 ```{r}
 frequencies <- DocumentTermMatrix(corpus)
-sparse <- removeSparseTerms(frequencies, 0.95) #removes words which show up very few times across reviews.
-#TODO: try different values of sparsity. .95,.99,.995.   Look at the MSE for each model. Take the mean(MSE) for each model.
-tSparse <- as.data.frame(as.matrix(sparse))
-colnames(tSparse) <- make.names(colnames(tSparse))
+sparsities <- c(.5,.6,.7,.8,.9,.95)
+
+sparse <- list()
+tSparse <- list()
+ii<-1
+while (ii < length(sparsities)+1) {
+  sparse[[ii]] <- removeSparseTerms(frequencies, sparsities[ii])
+  tSparse[[ii]] <- as.data.frame(as.matrix(sparse[[ii]]))
+  colnames(tSparse[[ii]]) <- make.names(colnames(tSparse[[ii]]))
+  ii <- ii+1
+}
+
+
 ```
 
 ## Creating and Combining Predictor Data
@@ -166,7 +179,7 @@ tSparse<-(tSparse[complete.cases(tSparse),]) #removing rows which contain
 
 ## Splitting Data into Testing and Training Sets
 ```{r}
-index <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.70) #splits 70% of the data into a trainng set and 30% into a test set.
+index <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.01) #splits 70% of the data into a trainng set and 30% into a test set.
 trainSparse <- tSparse[index, ]
 testSparse <- tSparse[-index, ]
 #save(list = c("trainSparse","testSparse","tSparse","combinedData"), file = "preModel.RData")
@@ -191,11 +204,16 @@ paste("finished at:",Sys.time())
 #Multithreaded Random Forest - Ranger
 ```{r}
 runtime$RF_Multi <- Sys.time()
-RF_model_MultiThread <- train(gentrificationChange ~ ., data =trainSparse,
+RF_model_MultiThread3 <- train(gentrificationChange ~ ., data =trainSparse,
                      method = "ranger",
-                     num.trees = 300)
+                     importance = 'impurity',
+                     num.trees = 15)
 
-predictRF_Multi = predict(RF_model_MultiThread, newdata=testSparse)
+predictRF_Multi = predict(RF_model_MultiThread3, newdata=testSparse)
+
+
+varImp(RF_model_MultiThread3)
+
 runtime$RF_Multi <- Sys.time() - runtime$RF_Multi
 ```
 
