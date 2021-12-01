@@ -22,8 +22,10 @@ library(glmnet)
 ```
 
 
-## Reading Data and Final Compilation
+# Reading Data and Final Compilation
 Data is aggregated at the airbnb listing level. Some final data collection steps are performed here because the data files were too large to push to github
+
+## Stacking Review Data
 ```{r}
 runtime <- list()
 runtime$finalCompilation <- Sys.time()
@@ -36,24 +38,51 @@ for (variable in file_list) {
       review_data <- rbind(review_data,read.csv(paste(path,variable,sep = ""),encoding = "UTF-8"))
   } 
 }
+```
 
-### Eliminating unnecessary data. Prefix "t" added representing they will be used for the text analysis portion. Alternately, "t" for tiny.
+## Eliminating Review Data Outside of Time Window and Aggregating to Listing Level
+```{r}
+### Prefix "t" added representing they will be used for the text analysis portion. Alternately, "t" for tiny.
 load("Compiled_Thesis_Data.RData")
 tReviewData <- review_data %>% filter(!is.na(id)) #removes rows with NA listing IDs. 
 tReviewData <- tReviewData %>% filter(date >= as.Date("2015-01-01") & date <= as.Date("2019-12-31"))  #only keep reviews between census collection time period: 2015-2019
 tReviewData <- tReviewData %>% subset(select = c(listing_id,comments)) #keep only listing_id and text data
 tReviewData <- aggregate(comments ~ listing_id, tReviewData, paste, collapse = " ") #combines all text data for a given listing into one row for that listing
+```
 
-tListingData <- listing_data %>% subset(select = c("id","bedrooms","bathrooms","price","minimum_nights",
-                                                             "review_scores_rating","review_scores_location","license","tractFIPS2010"))
-colnames(tListingData)[which(names(tListingData) == "price")] <- "listing_price" #renames column titled price to "listing_price". Prevents error of repeated column name in tSparse
+## Merging Airbnb (Listing Level) and Census Data (Tract Level)
+```{r}
+tListingData <- listing_data %>% subset(select = c("id","bedrooms","price","minimum_nights","review_scores_rating",
+                                                             "review_scores_location","license","tractFIPS2010"))
+
+colnames(tListingData)[which(names(tListingData) == "price")] <- "listing_price" #renames column titled price to "listing_price". 
+                                                                                 #Prevents error of repeated column name in tSparse
 
 airbnbData <- inner_join(tListingData,tReviewData,by = c("id"="listing_id"))
 
 tCensusData <- gentrifiableCensusDataWithDistributionsWide %>% subset(select = 
                                                                         c("tractFIPS","NAME.2014","totalPop.2014","popGrowth","gentrificationChange"))
+combinedData  <- inner_join(tCensusData,airbnbData,by = c("tractFIPS"="tractFIPS2010"))
+```
 
-combinedData <- inner_join(tCensusData,airbnbData,by = c("tractFIPS"="tractFIPS2010"))
+## Aggregating Airbnb Data to Tract Level
+```{r}
+tCombinedData <- combinedData %>% subset(select = c(tractFIPS,comments))
+tCombinedData <- aggregate(comments ~ tractFIPS, tCombinedData, paste,collapse = " ")
+
+combinedData <-  combinedData %>% subset(select = -c(comments))
+
+combinedData <- combinedData %>% group_by(tractFIPS) %>%
+                                summarise(gentrificationChange = mean(gentrificationChange,na.rm = TRUE),
+                                            totalPop.2014 = mean(totalPop.2014,na.rm = TRUE),
+                                            popGrowth = mean(popGrowth,na.rm = TRUE),
+                                            review_scores_rating = mean(review_scores_rating,na.rm = TRUE),
+                                            review_scores_location = mean(review_scores_location,na.rm = TRUE),
+                                            bedrooms = mean(bedrooms,na.rm = TRUE),
+                                            listing_price = mean(parse_number(listing_price),na.rm = TRUE))
+
+tractData <- inner_join(combinedData,tCombinedData, by = "tractFIPS")
+rm(tReviewData,airbnbData,tCensusData,tCombinedData,combinedData)
 runtime$finalCompilation <- runtime$finalCompilation- Sys.time()
 ```
 
@@ -110,12 +139,22 @@ tSparse <- as.data.frame(as.matrix(sparse))
 colnames(tSparse) <- make.names(colnames(tSparse))
 ```
 
-## Supplemental Data Cleaning
+## Creating and Combining Predictor Data
 ```{r}
-predictorData <- subset(combinedDataSample,select = c(gentrificationChange))#,totalPop.2014,popGrowth))
+predictorData <- subset(combinedData,select = c(tractFIPS,gentrificationChange,totalPop.2014,popGrowth,review_scores_rating,
+                                                review_scores_location,bedrooms,bathrooms,listing_price))
 tSparse <- cbind(predictorData,tSparse)
-### Group tsparse by the tracts . Can take the average of the population because it is the same at the listing and the tract level (i.e. the listing data is just the tract data)
 tSparse <- tSparse[,!duplicated(colnames(tSparse))] #removing columns with duplicate names
+### Group tsparse by the tracts . Can take the average of the population because it is the same at the listing and the tract level (i.e. the listing data is just the tract data)
+
+
+#create a very small training set to get the code working.
+index1 <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.05) 
+smallTSparse <- tSparse[index1, ]
+index2 <- sample(seq_len(nrow(smallTSparse)), size = nrow(smallTSparse)*.7) 
+smallTrainSparse <- smallTSparse[index2,]
+smallTestSparse <-  smallTSparse[-index2,]
+
 
 sum(!complete.cases(tSparse)) #number of rows with NAs. (There are 500 total)
 combinedDataSample<-(combinedDataSample[!complete.cases(tSparse),]) #removing rows which contain 
@@ -126,6 +165,8 @@ tSparse<-(tSparse[complete.cases(tSparse),]) #removes all row without complete c
 
 ## Splitting Data into Testing and Training Sets
 ```{r}
+seq_len(nrow(tSparse))
+
 index <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.7) #splits 70% of the data into a trainng set and 30% into a test set.
 trainSparse <- tSparse[index, ]
 testSparse <- tSparse[-index, ]
