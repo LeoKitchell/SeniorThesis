@@ -18,7 +18,8 @@ library(readr)
 library(randomForest)
 library(tidyverse)
 library(glmnet)
-
+library(caret)
+library(ranger)
 ```
 
 
@@ -79,9 +80,11 @@ combinedData <- combinedData %>% group_by(tractFIPS) %>%
                                             review_scores_rating = mean(review_scores_rating,na.rm = TRUE),
                                             review_scores_location = mean(review_scores_location,na.rm = TRUE),
                                             bedrooms = mean(bedrooms,na.rm = TRUE),
-                                            listing_price = mean(parse_number(listing_price),na.rm = TRUE))
+                                            listing_price = mean(parse_number(listing_price),na.rm = TRUE),
+                                            numListings = n())
 
 tractData <- inner_join(combinedData,tCombinedData, by = "tractFIPS")
+
 rm(tReviewData,airbnbData,tCensusData,tCombinedData,combinedData)
 runtime$finalCompilation <- runtime$finalCompilation- Sys.time()
 ```
@@ -89,7 +92,7 @@ runtime$finalCompilation <- runtime$finalCompilation- Sys.time()
 
 # To Do (Not in order):
  1) Try different values of sparsity. .95,.99,.995.   Look at the MSE for each model. Take the mean(MSE) for each model.
- 2) Aggregate to the tract level. 
+ 2) Done: Aggregate to the tract level. 
           Involves creating new variables: number of airbnbs per tract, average rating for listings in the tract, average price,
           average number of bedrooms with na.rm = TRUE, average star rating for the location. Probably use collapse to get all the words for the tract,
           and use summarize to get the summary statistics like average and n() for the other
@@ -115,13 +118,13 @@ locationWords <- c("north","east","south","west","northeast","northwest","southe
 ## Cleaning Text Data
 ```{r}
 runtime$corpus <- Sys.time()
-#sampleSize <- 2000#nrow(combinedData)
-#combinedDataSample <-combinedData[sample(nrow(combinedData), sampleSize), ]
-#corpus <- Corpus(VectorSource(combinedDataSample$comments))
 
-corpus <- Corpus(VectorSource(combinedData$comments))
+sampleSize <- 500#nrow(combinedData)
+combinedDataSample <-tractData[sample(nrow(tractData), sampleSize), ]
+corpus <- Corpus(VectorSource(combinedDataSample$comments))
+
+corpus <- Corpus(VectorSource(tractData$comments))
 corpus <- tm_map(corpus, PlainTextDocument)
-
 corpus <- tm_map(corpus, removePunctuation)
 corpus <- tm_map(corpus, removeWords, "New") #removing for place names (e.g. New York, New Jersey)
 corpus <- tm_map(corpus, tolower)
@@ -133,7 +136,7 @@ runtime$corpus <- Sys.time() - runtime$corpus
 ## Adding Matrix of Word Frequencies to data
 ```{r}
 frequencies <- DocumentTermMatrix(corpus)
-sparse <- removeSparseTerms(frequencies, 0.98) #removes words which show up very few times across reviews.
+sparse <- removeSparseTerms(frequencies, 0.95) #removes words which show up very few times across reviews.
 #TODO: try different values of sparsity. .95,.99,.995.   Look at the MSE for each model. Take the mean(MSE) for each model.
 tSparse <- as.data.frame(as.matrix(sparse))
 colnames(tSparse) <- make.names(colnames(tSparse))
@@ -141,33 +144,29 @@ colnames(tSparse) <- make.names(colnames(tSparse))
 
 ## Creating and Combining Predictor Data
 ```{r}
-predictorData <- subset(combinedData,select = c(tractFIPS,gentrificationChange,totalPop.2014,popGrowth,review_scores_rating,
-                                                review_scores_location,bedrooms,bathrooms,listing_price))
+predictorData <- subset(tractData,select = c(gentrificationChange,totalPop.2014,popGrowth,review_scores_rating,
+                                                review_scores_location,bedrooms,listing_price,numListings))
+
 tSparse <- cbind(predictorData,tSparse)
 tSparse <- tSparse[,!duplicated(colnames(tSparse))] #removing columns with duplicate names
-### Group tsparse by the tracts . Can take the average of the population because it is the same at the listing and the tract level (i.e. the listing data is just the tract data)
 
-
-#create a very small training set to get the code working.
-index1 <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.05) 
-smallTSparse <- tSparse[index1, ]
-index2 <- sample(seq_len(nrow(smallTSparse)), size = nrow(smallTSparse)*.7) 
-smallTrainSparse <- smallTSparse[index2,]
-smallTestSparse <-  smallTSparse[-index2,]
-
+# #create a very small training set to get the code working.
+# index1 <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.05) 
+# smallTSparse <- tSparse[index1, ]
+# index2 <- sample(seq_len(nrow(smallTSparse)), size = nrow(smallTSparse)*.7) 
+# smallTrainSparse <- smallTSparse[index2,]
+# smallTestSparse <-  smallTSparse[-index2,]
+# 
 
 sum(!complete.cases(tSparse)) #number of rows with NAs. (There are 500 total)
-combinedDataSample<-(combinedDataSample[!complete.cases(tSparse),]) #removing rows which contain 
 incompleteCases<-(tSparse[!complete.cases(tSparse),])
-tSparse<-(tSparse[complete.cases(tSparse),]) #removes all row without complete cases (500 when running on entire sample)
+tSparse<-(tSparse[complete.cases(tSparse),]) #removing rows which contain 
 
 ```
 
 ## Splitting Data into Testing and Training Sets
 ```{r}
-seq_len(nrow(tSparse))
-
-index <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.7) #splits 70% of the data into a trainng set and 30% into a test set.
+index <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.70) #splits 70% of the data into a trainng set and 30% into a test set.
 trainSparse <- tSparse[index, ]
 testSparse <- tSparse[-index, ]
 #save(list = c("trainSparse","testSparse","tSparse","combinedData"), file = "preModel.RData")
@@ -177,8 +176,8 @@ testSparse <- tSparse[-index, ]
 ```{r}
 runtime$RF <- Sys.time()
 mean(tSparse$gentrificationChange,na.rm = TRUE)  #baseline accuracy??
-RF_model = randomForest(gentrificationChange ~ ., data=trainSparse,na.action = na.omit)
-save(RF_model,file = "RF_model.RData")
+RF_model = randomForest(gentrificationChange ~ ., data=trainSparse,na.action = na.omit, ntree = 2)
+save(RF_model,file = "RF_model2.RData")
 
 predictRF = predict(RF_model, newdata=testSparse)
 hist(predictRF)
@@ -188,6 +187,30 @@ RF_model$rsq
 runtime$RF <- Sys.time() - runtime$RF
 paste("finished at:",Sys.time())
 ```
+
+#Multithreaded Random Forest - Ranger
+```{r}
+runtime$RF_Multi <- Sys.time()
+RF_model_MultiThread <- train(gentrificationChange ~ ., data =trainSparse,
+                     method = "ranger",
+                     num.trees = 300)
+
+predictRF_Multi = predict(RF_model_MultiThread, newdata=testSparse)
+runtime$RF_Multi <- Sys.time() - runtime$RF_Multi
+```
+
+#Multithreaded Random Forest - Ranger
+```{r}
+runtime$RF_Multi2 <- Sys.time()
+RF_model_MultiThread2 <- train(gentrificationChange ~ ., data =trainSparse,
+                     method = "ranger",
+                     num.trees = 900)
+
+predictRF_Mult2i = predict(RF_model_MultiThread2, newdata=testSparse)
+runtime$RF_Multi2 <- Sys.time() - runtime$RF_Multi2
+```
+
+
 
 $RF300
 Time difference of 1.253781 mins
