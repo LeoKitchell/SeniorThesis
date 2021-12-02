@@ -47,9 +47,12 @@ runtime$loadAndFilter <- Sys.time()
 ### Prefix "t" added representing they will be used for the text analysis portion. Alternately, "t" for tiny.
 load("Compiled_Thesis_Data.RData")
 tReviewData <- review_data %>% filter(!is.na(id)) #removes rows with NA listing IDs. 
+tReviewData$date <- as.Date(tReviewData$date)
 tReviewData <- tReviewData %>% filter(date >= as.Date("2015-01-01") & date <= as.Date("2019-12-31"))  #only keep reviews between census collection time period: 2015-2019
+
 tReviewData <- tReviewData %>% subset(select = c(listing_id,comments)) #keep only listing_id and text data
-tReviewData <- aggregate(comments ~ listing_id, tReviewData, paste, collapse = " ") #combines all text data for a given listing into one row for that listing
+tReviewData <- tReviewData %>% group_by(listing_id) %>% mutate(numReviews = n()) #creates a feature for the number of reviews per listing
+tReviewData <- aggregate(comments ~ listing_id + numReviews, tReviewData, paste, collapse = " ") #combines all text data for a given listing into one row for that listing
 runtime$loadAndFilter <- Sys.time() - runtime$loadAndFilter
 ```
 
@@ -63,7 +66,7 @@ colnames(tListingData)[which(names(tListingData) == "price")] <- "listing_price"
 
 airbnbData <- inner_join(tListingData,tReviewData,by = c("id"="listing_id"))
 
-tCensusData <- gentrifiableCensusDataWithDistributionsWide %>% subset(select =                                                                       c("tractFIPS","NAME.2014","totalPop.2014","popGrowth","gentrificationChange"))
+tCensusData <- gentrifiableCensusDataWithDistributionsWide %>% subset(select = c("tractFIPS","NAME.2014","totalPop.2014","popGrowth","gentrificationChange"))
 combinedData  <- inner_join(tCensusData,airbnbData,by = c("tractFIPS"="tractFIPS2010"))
 ```
 
@@ -82,7 +85,8 @@ combinedData <- combinedData %>% group_by(tractFIPS) %>%
                                             review_scores_location = mean(review_scores_location,na.rm = TRUE),
                                             bedrooms = mean(bedrooms,na.rm = TRUE),
                                             listing_price = mean(parse_number(listing_price),na.rm = TRUE),
-                                            numListings = n())
+                                            numListings = n(),
+                                            numReviews = sum(numReviews))
 
 tractData <- inner_join(combinedData,tCombinedData, by = "tractFIPS")
 
@@ -92,15 +96,12 @@ runtime$finalCompilation <- Sys.time() - runtime$finalCompilation
 
 
 # To Do (Not in order):
- 1) Try different values of sparsity. .95,.99,.995.   Look at the MSE for each model. Take the mean(MSE) for each model.
- 2) Done: Aggregate to the tract level. 
-          Involves creating new variables: number of airbnbs per tract, average rating for listings in the tract, average price,
-          average number of bedrooms with na.rm = TRUE, average star rating for the location. Probably use collapse to get all the words for the tract,
-          and use summarize to get the summary statistics like average and n() for the other
- 3) run model with all variables so i can see the relative importance
- 4) DONE: add a list of city names as stopwords. Also state names. 
  5) Run model with TFDIF
- 6) Investigate packages that will allow parallel processing (caret? foreach?)
+ 1) Try different values of sparsity. .95,.99,.995.   Look at the MSE for each model. Take the mean(MSE) for each model.
+ 2) DONE: Aggregate to the tract level. 
+ 3) DONE: run model with all variables so i can see the relative importance
+ 4) DONE: add a list of city names as stopwords. Also state names. 
+ 6) DONE: Investigate packages that will allow parallel processing (caret? foreach?)
 
 ## Creating Location Stopwords
 ```{r}
@@ -119,43 +120,42 @@ locationWords <- c("north","east","south","west","northeast","northwest","southe
 ```
 
 ## Cleaning Text Data
+Takes approximately 2 hours to run.
 ```{r}
 runtime$corpus <- Sys.time()
 
-sampleSize <- nrow(combinedData)
+#sampleSize <- nrow(tractData)
 #combinedDataSample <-tractData[sample(nrow(tractData), sampleSize), ]
-combinedDataSample <-tractData[1:sampleSize,]
-corpus <- Corpus(VectorSource(combinedDataSample$comments)) # REMOVE when running full thing
-#corpus <- Corpus(VectorSource(tractData$comments)) this line takes a long time to run but only needs to be run once
+#combinedDataSample <-tractData[1:sampleSize,]
+#corpus <- Corpus(VectorSource(combinedDataSample$comments)) # REMOVE when running full thing
 
+corpus <- Corpus(VectorSource(tractData$comments)) 
 corpus <- tm_map(corpus, PlainTextDocument)
 corpus <- tm_map(corpus, removePunctuation)
 corpus <- tm_map(corpus, removeWords, "New") #removing for place names (e.g. New York, New Jersey)
 corpus <- tm_map(corpus, tolower)
 corpus <- tm_map(corpus, removeWords, c("airbnb",stopwords("english"),stopwords("spanish"),locationWords))  #remove stopwords
 corpus <- tm_map(corpus, stemDocument)
+#save(corpus,file = "processedFullCorpus.RData")
 runtime$corpus <- Sys.time() - runtime$corpus
 ```
 
-## Adding Matrix of Word Frequencies to data
+## Creating Matrices of Word Frequencies
+Both Bag of Words and TF IDF are created. Different sparsity thresholds are also tested
 ```{r}
+sparsities <- c(.5,.6,.7,.8,.9,.95,.99)
 frequencies <- DocumentTermMatrix(corpus)
-sparsities <- c(.5,.6,.7,.8,.9,.95)
+tfidFrequencies <- DocumentTermMatrix(corpus,control = list(weighting = function(x) weightTfIdf(x, normalize = FALSE)))
 
-#Commented out so that I can run stuff below
-sparse <- list()
-tSparse <- list()
+sparseList <- list()
+tSparseList <- list()
 ii<-1
 while (ii < length(sparsities)+1) {
-  sparse[[ii]] <- removeSparseTerms(frequencies, sparsities[ii])
-  tSparse[[ii]] <- as.data.frame(as.matrix(sparse[[ii]]))
-  colnames(tSparse[[ii]]) <- make.names(colnames(tSparse[[ii]]))
+  sparseList[[ii]] <- removeSparseTerms(frequencies, sparsities[ii])
+  tSparseList[[ii]] <- as.data.frame(as.matrix(sparseList[[ii]]))
+  colnames(tSparseList[[ii]]) <- make.names(colnames(tSparseList[[ii]]))
   ii <- ii+1
 }
-
-sparse <- removeSparseTerms(frequencies, 0.75)
-tSparse <- as.data.frame(as.matrix(sparse))
-colnames(tSparse) <- make.names(colnames(tSparse))
 ```
 
 ## Creating and Combining Predictor Data
@@ -173,10 +173,37 @@ tSparse <- tSparse[,!duplicated(colnames(tSparse))] #removing columns with dupli
 # smallTrainSparse <- smallTSparse[index2,]
 # smallTestSparse <-  smallTSparse[-index2,]
 # 
+#sum(!complete.cases(tSparse)) #number of rows with NAs. (There are 500 total)
+#incompleteCases<-(tSparse[!complete.cases(tSparse),])
+#tSparse<-(tSparse[complete.cases(tSparse),]) #removing rows which contain 
 
-sum(!complete.cases(tSparse)) #number of rows with NAs. (There are 500 total)
-incompleteCases<-(tSparse[!complete.cases(tSparse),])
-tSparse<-(tSparse[complete.cases(tSparse),]) #removing rows which contain 
+
+trainProportion <- 0.7
+speedFactor <- .01 #Value between 0 and 1. Percent of tracts to use in training and testing set. When running full model set to 1. 
+speedSparseList <-list()
+indexSpeedSparse <- list()
+
+ii<-1
+while (ii < length(tSparse)+1) {
+  tSparseList[[ii]]     <- cbind(predictorData[1:sampleSize,],tSparseList[[ii]])                 #combine text and structured features
+  tSparseList[[ii]]     <- tSparseList[[ii]][,!duplicated(colnames(tSparseList[[ii]]))]           #remove columns with duplicate names
+  tSparseList[[ii]]     <- tSparseList[[ii]][complete.cases(tSparseList[[ii]]),]                  #remove rows with NAs and NaNs
+  
+  indexSparseTrain[ii]  <- sample(seq_len(nrow(tSparseList[[ii]])), size = nrow(tSparseList[[ii]])*trainProportion) #create a training and testing dataset
+  trainSparseList[[ii]] <- tSparseList[[ii]][indexSparse[ii],]    
+  testSparseList[[ii]]  <- tSparseList[[ii]][-indexSparse[ii],]
+  
+  indexSpeedSparse[ii]  <- sample(seq_len(nrow(tSparseList[[ii]])), size = nrow(tSparseList[[ii]])*speedFactor)   #create a subset of the full dataset to train small models on
+  speedSparseList[[ii]] <- tSparseList[[indexSpeedSparse[ii]],]
+  indexSpeedSparseTrain[ii]  <- sample(seq_len(nrow(speedSparseList[[ii]])), size = nrow(speedSparseList[[ii]])*trainProportion)
+  speedTrainSparseList[[ii]] <-speedSparseList[[ii]][indexSpeedSparseTrain[ii],] 
+  speedTestSparseList[[ii]] <- speedSparseList[[ii]][-indexSpeedSparseTrain[ii],] 
+
+  ii<-ii+1 
+}
+
+
+
 
 ```
 
@@ -186,22 +213,6 @@ index <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.7) #splits 70% of 
 trainSparse <- tSparse[index, ]
 testSparse <- tSparse[-index, ]
 save(list = c("trainSparse","testSparse","tSparse","tractData","corpus"), file = "preModel_12_1.RData")
-```
-
-## Running Random Forest Model
-```{r}
-runtime$RF <- Sys.time()
-mean(tSparse$gentrificationChange,na.rm = TRUE)  #baseline accuracy??
-RF_model = randomForest(gentrificationChange ~ . -tractFIPS, data=trainSparse,na.action = na.omit, ntree = 2)
-save(RF_model,file = "RF_model2.RData")
-
-predictRF = predict(RF_model, newdata=testSparse)
-hist(predictRF)
-varImpPlot(RF_model, n.var = 25)
-RF_model$rsq
-
-runtime$RF <- Sys.time() - runtime$RF
-paste("finished at:",Sys.time())
 ```
 
 #Multithreaded Random Forest - Ranger
@@ -215,7 +226,7 @@ RF_model_MultiThread3 <- caret::train(gentrificationChange ~ .,
                                       data =trainSparse2,
                                       method = "ranger",
                                       importance = "impurity",
-                                      num.trees = 15)
+                                      num.trees = 100)
 
 
 predictRF_Multi = predict(RF_model_MultiThread3, newdata=testSparse2)
@@ -241,7 +252,21 @@ predictRF_Multi2 = predict(RF_model_MultiThread2, newdata=testSparse2)
 runtime$RF_Multi2 <- Sys.time() - runtime$RF_Multi2
 ```
 
+## Running Random Forest Model
+```{r}
+runtime$RF <- Sys.time()
+mean(tSparse$gentrificationChange,na.rm = TRUE)  #baseline accuracy??
+RF_model = randomForest(gentrificationChange ~ . -tractFIPS, data=trainSparse,na.action = na.omit, ntree = 2)
+save(RF_model,file = "RF_model2.RData")
 
+predictRF = predict(RF_model, newdata=testSparse)
+hist(predictRF)
+varImpPlot(RF_model, n.var = 25)
+RF_model$rsq
+
+runtime$RF <- Sys.time() - runtime$RF
+paste("finished at:",Sys.time())
+```
 
 $RF300
 Time difference of 1.253781 mins
@@ -295,6 +320,7 @@ rsqlasso <- 1 - rsslasso/tsslasso
 rsqlasso
 plot(lassoReg)
 runtime$lasso <- Sys.time() - runtime$lasso
+print(Sys.time())
 ```
 
 
