@@ -87,7 +87,7 @@ combinedData <- combinedData %>% group_by(tractFIPS) %>%
 tractData <- inner_join(combinedData,tCombinedData, by = "tractFIPS")
 
 rm(tReviewData,airbnbData,tCensusData,tCombinedData,combinedData)
-runtime$finalCompilation <- runtime$finalCompilation- Sys.time()
+runtime$finalCompilation <- Sys.time() - runtime$finalCompilation
 ```
 
 
@@ -122,9 +122,9 @@ locationWords <- c("north","east","south","west","northeast","northwest","southe
 ```{r}
 runtime$corpus <- Sys.time()
 
-sampleSize <- 10#nrow(combinedData)
-combinedDataSample <-tractData[sample(nrow(tractData), sampleSize), ]
-
+sampleSize <- nrow(combinedData)
+#combinedDataSample <-tractData[sample(nrow(tractData), sampleSize), ]
+combinedDataSample <-tractData[1:sampleSize,]
 corpus <- Corpus(VectorSource(combinedDataSample$comments)) # REMOVE when running full thing
 #corpus <- Corpus(VectorSource(tractData$comments)) this line takes a long time to run but only needs to be run once
 
@@ -142,6 +142,7 @@ runtime$corpus <- Sys.time() - runtime$corpus
 frequencies <- DocumentTermMatrix(corpus)
 sparsities <- c(.5,.6,.7,.8,.9,.95)
 
+#Commented out so that I can run stuff below
 sparse <- list()
 tSparse <- list()
 ii<-1
@@ -152,15 +153,17 @@ while (ii < length(sparsities)+1) {
   ii <- ii+1
 }
 
-
+sparse <- removeSparseTerms(frequencies, 0.75)
+tSparse <- as.data.frame(as.matrix(sparse))
+colnames(tSparse) <- make.names(colnames(tSparse))
 ```
 
 ## Creating and Combining Predictor Data
 ```{r}
-predictorData <- subset(tractData,select = c(gentrificationChange,totalPop.2014,popGrowth,review_scores_rating,
+predictorData <- subset(tractData,select = c(tractFIPS,gentrificationChange,totalPop.2014,popGrowth,review_scores_rating,
                                                 review_scores_location,bedrooms,listing_price,numListings))
 
-tSparse <- cbind(predictorData,tSparse)
+tSparse <- cbind(predictorData[1:sampleSize,],tSparse)
 tSparse <- tSparse[,!duplicated(colnames(tSparse))] #removing columns with duplicate names
 
 # #create a very small training set to get the code working.
@@ -179,17 +182,17 @@ tSparse<-(tSparse[complete.cases(tSparse),]) #removing rows which contain
 
 ## Splitting Data into Testing and Training Sets
 ```{r}
-index <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.01) #splits 70% of the data into a trainng set and 30% into a test set.
+index <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.7) #splits 70% of the data into a trainng set and 30% into a test set.
 trainSparse <- tSparse[index, ]
 testSparse <- tSparse[-index, ]
-#save(list = c("trainSparse","testSparse","tSparse","combinedData"), file = "preModel.RData")
+save(list = c("trainSparse","testSparse","tSparse","tractData","corpus"), file = "preModel_12_1.RData")
 ```
 
 ## Running Random Forest Model
 ```{r}
 runtime$RF <- Sys.time()
 mean(tSparse$gentrificationChange,na.rm = TRUE)  #baseline accuracy??
-RF_model = randomForest(gentrificationChange ~ ., data=trainSparse,na.action = na.omit, ntree = 2)
+RF_model = randomForest(gentrificationChange ~ . -tractFIPS, data=trainSparse,na.action = na.omit, ntree = 2)
 save(RF_model,file = "RF_model2.RData")
 
 predictRF = predict(RF_model, newdata=testSparse)
@@ -204,15 +207,21 @@ paste("finished at:",Sys.time())
 #Multithreaded Random Forest - Ranger
 ```{r}
 runtime$RF_Multi <- Sys.time()
-RF_model_MultiThread3 <- train(gentrificationChange ~ ., data =trainSparse,
-                     method = "ranger",
-                     importance = 'impurity',
-                     num.trees = 15)
 
-predictRF_Multi = predict(RF_model_MultiThread3, newdata=testSparse)
+testSparse2 <-   testSparse[,2:ncol(testSparse)]
+trainSparse2 <- trainSparse[,2:ncol(trainSparse)]
+
+RF_model_MultiThread3 <- caret::train(gentrificationChange ~ .,
+                                      data =trainSparse2,
+                                      method = "ranger",
+                                      importance = "impurity",
+                                      num.trees = 15)
 
 
-varImp(RF_model_MultiThread3)
+predictRF_Multi = predict(RF_model_MultiThread3, newdata=testSparse2)
+
+plot(varImp(RF_model_MultiThread3),top = 15)
+
 
 runtime$RF_Multi <- Sys.time() - runtime$RF_Multi
 ```
@@ -220,11 +229,15 @@ runtime$RF_Multi <- Sys.time() - runtime$RF_Multi
 #Multithreaded Random Forest - Ranger
 ```{r}
 runtime$RF_Multi2 <- Sys.time()
-RF_model_MultiThread2 <- train(gentrificationChange ~ ., data =trainSparse,
-                     method = "ranger",
-                     num.trees = 900)
 
-predictRF_Mult2i = predict(RF_model_MultiThread2, newdata=testSparse)
+RF_model_MultiThread3 <- caret::train(gentrificationChange ~ .,
+                                      data =trainSparse2,
+                                      method = "ranger",
+                                      importance = "impurity",
+                                      num.trees = 600)
+
+
+predictRF_Multi2 = predict(RF_model_MultiThread2, newdata=testSparse2)
 runtime$RF_Multi2 <- Sys.time() - runtime$RF_Multi2
 ```
 
@@ -304,9 +317,9 @@ runtime$lasso <- Sys.time() - runtime$lasso
 #Monday Nov 15th send a rought draft to Gelman. 
 ```
 
+Look into TFIDF
 
-
-Will need to create a table with summary statistics of all variables
+Will need to create a table with summary statistics of all variables except words
   Number of observations
   Mean
   Min 
@@ -316,19 +329,14 @@ Will need to create a table with summary statistics of all variables
 Histogram of Gentrification
 Map as an example showing the distribution
 
-Three groups of variables
-  Traditional Airbnb
-    Overall Stars
-    Location Stars
-    Number of Airbnbs
-    Airbnb Price
-  Non Traditional Airbnb
-    Words
-  Controls Variables at the Census Tract Level
-    Population Change 2014-2019
+Table 6 from Jain but with theg eneral model.
+It would be nice to do one for each of the cities, but maybe like 2 example cities. Imaigining a table 6 with the overall and with the Seattle and San Fracisisco
     
-    Look at Jain Paper for controls
-    
+
+Look at Jain Paper for controls
+  
+Naive Bayes as a stretch goal??
+
   
 What data frame do I need to run this model:
     Multiple objects. 
@@ -339,5 +347,3 @@ What data frame do I need to run this model:
       
       Matrix which have a column for each word used in any review in any of the 28 MSAs
         Each row will be a census tract. The value of each cell will either be a quantifier for how many times the word shows up, or it could be a 1 or 0 for whether it shows up.
-        
-Mash all reviews together for each census tract. 
