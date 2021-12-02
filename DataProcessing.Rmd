@@ -12,14 +12,12 @@ The code below creates models to predict neighborhood (census tract) level gentr
 ```{r,warnings = FALSE}
 library(stratification)
 library(caTools)
-library(tm)
 library(SnowballC)
-library(readr) 
 library(randomForest)
-library(tidyverse)
 library(glmnet)
-library(caret)
-library(ranger)
+
+library(tm)
+library(tidyverse)
 ```
 
 
@@ -123,12 +121,6 @@ locationWords <- c("north","east","south","west","northeast","northwest","southe
 Takes approximately 2 hours to run.
 ```{r}
 runtime$corpus <- Sys.time()
-
-#sampleSize <- nrow(tractData)
-#combinedDataSample <-tractData[sample(nrow(tractData), sampleSize), ]
-#combinedDataSample <-tractData[1:sampleSize,]
-#corpus <- Corpus(VectorSource(combinedDataSample$comments)) # REMOVE when running full thing
-
 corpus <- Corpus(VectorSource(tractData$comments)) 
 corpus <- tm_map(corpus, PlainTextDocument)
 corpus <- tm_map(corpus, removePunctuation)
@@ -143,17 +135,24 @@ runtime$corpus <- Sys.time() - runtime$corpus
 ## Creating Matrices of Word Frequencies
 Both Bag of Words and TF IDF are created. Different sparsity thresholds are also tested
 ```{r}
+load("processedFullCorpus.RData")
 sparsities <- c(.5,.6,.7,.8,.9,.95,.99)
 frequencies <- DocumentTermMatrix(corpus)
 tfidFrequencies <- DocumentTermMatrix(corpus,control = list(weighting = function(x) weightTfIdf(x, normalize = FALSE)))
 
-sparseList <- list()
-tSparseList <- list()
+sparseList       <- list()
+tSparseList      <- list()
+sparseListTFIDF   <- list()
+tSparseListTFIDF  <- list()
+
 ii<-1
 while (ii < length(sparsities)+1) {
-  sparseList[[ii]] <- removeSparseTerms(frequencies, sparsities[ii])
-  tSparseList[[ii]] <- as.data.frame(as.matrix(sparseList[[ii]]))
-  colnames(tSparseList[[ii]]) <- make.names(colnames(tSparseList[[ii]]))
+  sparseList[[ii]]         <- removeSparseTerms(frequencies, sparsities[ii])
+  sparseListTFIDF[[ii]]     <- removeSparseTerms(tfidFrequencies, sparsities[ii])
+  tSparseList[[ii]]          <- as.data.frame(as.matrix(sparseList[[ii]]))
+  tSparseListTFIDF[[ii]]      <- as.data.frame(as.matrix(sparseListTFIDF[[ii]]))
+  colnames(tSparseList[[ii]])     <- make.names(colnames(tSparseList[[ii]]))
+  colnames(tSparseListTFIDF[[ii]]) <- make.names(colnames(tSparseListTFIDF[[ii]]))
   ii <- ii+1
 }
 ```
@@ -161,111 +160,357 @@ while (ii < length(sparsities)+1) {
 ## Creating and Combining Predictor Data
 ```{r}
 predictorData <- subset(tractData,select = c(tractFIPS,gentrificationChange,totalPop.2014,popGrowth,review_scores_rating,
-                                                review_scores_location,bedrooms,listing_price,numListings))
-
-tSparse <- cbind(predictorData[1:sampleSize,],tSparse)
-tSparse <- tSparse[,!duplicated(colnames(tSparse))] #removing columns with duplicate names
-
-# #create a very small training set to get the code working.
-# index1 <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.05) 
-# smallTSparse <- tSparse[index1, ]
-# index2 <- sample(seq_len(nrow(smallTSparse)), size = nrow(smallTSparse)*.7) 
-# smallTrainSparse <- smallTSparse[index2,]
-# smallTestSparse <-  smallTSparse[-index2,]
-# 
-#sum(!complete.cases(tSparse)) #number of rows with NAs. (There are 500 total)
-#incompleteCases<-(tSparse[!complete.cases(tSparse),])
-#tSparse<-(tSparse[complete.cases(tSparse),]) #removing rows which contain 
-
+                                                review_scores_location,bedrooms,listing_price,numListings,numReviews))
 
 trainProportion <- 0.7
 speedFactor <- .01 #Value between 0 and 1. Percent of tracts to use in training and testing set. When running full model set to 1. 
-speedSparseList <-list()
+
+#Bag of Words Section
+indexSparseTrain <- list()
+trainSparseList  <- list()
+testSparseList   <- list()
 indexSpeedSparse <- list()
+speedSparseList  <- list()
+indexSpeedSparseTrain <- list()
+speedTrainSparseList  <- list()
+speedTestSparseList   <- list()
+
+#TF IDF Section
+indexSparseTrainTFIDF <- list()
+trainSparseListTFIDF  <- list()
+testSparseListTFIDF   <- list()
+indexSpeedSparseTFIDF <- list()
+speedSparseListTFIDF  <- list()
+indexSpeedSparseTrainTFIDF <- list()
+speedTrainSparseListTFIDF  <- list()
+speedTestSparseListTFIDF   <- list()
+
 
 ii<-1
-while (ii < length(tSparse)+1) {
-  tSparseList[[ii]]     <- cbind(predictorData[1:sampleSize,],tSparseList[[ii]])                 #combine text and structured features
+while (ii < length(tSparseList)+1) {
+  ##Bag of Words Section
+  tSparseList[[ii]]     <- bind_cols(predictorData,tSparseList[[ii]])                 #combine text and structured features
   tSparseList[[ii]]     <- tSparseList[[ii]][,!duplicated(colnames(tSparseList[[ii]]))]           #remove columns with duplicate names
   tSparseList[[ii]]     <- tSparseList[[ii]][complete.cases(tSparseList[[ii]]),]                  #remove rows with NAs and NaNs
+  tSparseList[[ii]]     <- subset(tSparseList[[ii]],select = -c(tractFIPS))                       #remove tractFIPS from dataframe  
   
-  indexSparseTrain[ii]  <- sample(seq_len(nrow(tSparseList[[ii]])), size = nrow(tSparseList[[ii]])*trainProportion) #create a training and testing dataset
-  trainSparseList[[ii]] <- tSparseList[[ii]][indexSparse[ii],]    
-  testSparseList[[ii]]  <- tSparseList[[ii]][-indexSparse[ii],]
+  indexSparseTrain[[ii]]  <- sample(seq_len(nrow(tSparseList[[ii]])), size = nrow(tSparseList[[ii]])*trainProportion) #create a training and testing dataset
+  trainSparseList[[ii]] <- tSparseList[[ii]][indexSparseTrain[[ii]],]    
+  testSparseList[[ii]]  <- tSparseList[[ii]][-indexSparseTrain[[ii]],]
   
-  indexSpeedSparse[ii]  <- sample(seq_len(nrow(tSparseList[[ii]])), size = nrow(tSparseList[[ii]])*speedFactor)   #create a subset of the full dataset to train small models on
-  speedSparseList[[ii]] <- tSparseList[[indexSpeedSparse[ii]],]
-  indexSpeedSparseTrain[ii]  <- sample(seq_len(nrow(speedSparseList[[ii]])), size = nrow(speedSparseList[[ii]])*trainProportion)
-  speedTrainSparseList[[ii]] <-speedSparseList[[ii]][indexSpeedSparseTrain[ii],] 
-  speedTestSparseList[[ii]] <- speedSparseList[[ii]][-indexSpeedSparseTrain[ii],] 
-
+  indexSpeedSparse[[ii]]  <- sample(seq_len(nrow(tSparseList[[ii]])), size = nrow(tSparseList[[ii]])*speedFactor)   #create a subset of the full dataset to train small models on
+  speedSparseList[[ii]] <- tSparseList[[ii]][indexSpeedSparse[[ii]],]
+  
+  indexSpeedSparseTrain[[ii]]  <- sample(seq_len(nrow(speedSparseList[[ii]])), size = nrow(speedSparseList[[ii]])*trainProportion)
+  speedTrainSparseList[[ii]] <-speedSparseList[[ii]][indexSpeedSparseTrain[[ii]],] 
+  speedTestSparseList[[ii]] <- speedSparseList[[ii]][-indexSpeedSparseTrain[[ii]],] 
+  
+  ##TF IDF Section
+  tSparseListTFIDF[[ii]]     <- bind_cols(predictorData,tSparseListTFIDF[[ii]])                 #combine text and structured features
+  tSparseListTFIDF[[ii]]     <- tSparseListTFIDF[[ii]][,!duplicated(colnames(tSparseListTFIDF[[ii]]))]           #remove columns with duplicate names
+  tSparseListTFIDF[[ii]]     <- tSparseListTFIDF[[ii]][complete.cases(tSparseListTFIDF[[ii]]),]                  #remove rows with NAs and NaNs
+  tSparseListTFIDF[[ii]]     <- subset(tSparseListTFIDF[[ii]],select = -c(tractFIPS))                       #remove tractFIPS from dataframe  
+  
+  indexSparseTrainTFIDF[[ii]]  <- sample(seq_len(nrow(tSparseListTFIDF[[ii]])), size = nrow(tSparseListTFIDF[[ii]])*trainProportion) #create a training and testing dataset
+  trainSparseListTFIDF[[ii]] <- tSparseListTFIDF[[ii]][indexSparseTrainTFIDF[[ii]],]    
+  testSparseListTFIDF[[ii]]  <- tSparseListTFIDF[[ii]][-indexSparseTrainTFIDF[[ii]],]
+  
+  indexSpeedSparseTFIDF[[ii]]  <- sample(seq_len(nrow(tSparseListTFIDF[[ii]])), size = nrow(tSparseListTFIDF[[ii]])*speedFactor)   #create a subset of the full dataset to train small models on
+  speedSparseListTFIDF[[ii]] <- tSparseListTFIDF[[ii]][indexSpeedSparseTFIDF[[ii]],]
+  
+  indexSpeedSparseTrainTFIDF[[ii]]  <- sample(seq_len(nrow(speedSparseListTFIDF[[ii]])), size = nrow(speedSparseListTFIDF[[ii]])*trainProportion)
+  speedTrainSparseListTFIDF[[ii]] <-speedSparseListTFIDF[[ii]][indexSpeedSparseTrainTFIDF[[ii]],] 
+  speedTestSparseListTFIDF[[ii]] <- speedSparseListTFIDF[[ii]][-indexSpeedSparseTrainTFIDF[[ii]],]  
   ii<-ii+1 
 }
-
-
-
-
 ```
 
-## Splitting Data into Testing and Training Sets
+#Random Forests - Full Data, Large Model, Bag of Words
+Uses Full data set and 200 trees
 ```{r}
-index <- sample(seq_len(nrow(tSparse)), size = nrow(tSparse)*.7) #splits 70% of the data into a trainng set and 30% into a test set.
-trainSparse <- tSparse[index, ]
-testSparse <- tSparse[-index, ]
-save(list = c("trainSparse","testSparse","tSparse","tractData","corpus"), file = "preModel_12_1.RData")
+library(caret)
+library(ranger)
+runtime$largeRangers <- Sys.time()
+rangerLargeModels <- list()
+predictLargeRangers <- list()
+impPlotsLargeRanger <- list(list())
+
+
+ii<-1
+while (ii < length(speedTrainSparseList)+1) {
+      rangerLargeModels[[ii]] <- caret::train(gentrificationChange ~ .,
+                                      data = trainSparseList[[ii]],
+                                      method = "ranger",
+                                      importance = "impurity",
+                                      num.trees = 200)
+      predictLargeRangers[[ii]] <- predict(rangerLargeModels[[ii]],newdata = testSparseList[[ii]])
+      impPlotsLargeRanger[[ii]] <- plot(varImp(rangerLargeModels[[ii]]),top = 15)
+      ii<-ii+1
+}
+
+save(list = c("rangerLargeModels","impPlotsLargeRanger","predictLargeRangers"),file = "largeRangerResults.RData")
+
+ii<-1
+while (ii < 7) {
+  print(paste("Model with sparsity =",ii," has r squared:",rangerLargeModels[[ii]]$finalModel$r.squared))
+  print(paste("Model with sparsity =",ii," has MSE:",rangerLargeModels[[ii]]$finalModel$prediction.error))
+  ii <- ii+1
+}
+
+runtime$largeRangers <- Sys.time() - runtime$largeRangers
 ```
+
+#Random Forests - Full Data, Large Model, TF IDF
+Uses the Full data set and 200 trees
+```{r}
+runtime$largeRangersTFIDF <- Sys.time()
+rangerLargeModelsTFIDF <- list()
+predictLargeRangersTFIDF <- list()
+impPlotsLargeRangerTFIDF <- list()
+
+ii<-1
+while (ii <= length(trainSparseListTFIDF)) {
+      rangerLargeModelsTFIDF[[ii]] <- caret::train(gentrificationChange ~ .,
+                                      data = trainSparseListTFIDF[[ii]],
+                                      method = "ranger",
+                                      importance = "impurity",
+                                      num.trees = 200)
+      predictLargeRangersTFIDF[[ii]] <- predict(rangerLargeModelsTFIDF[[ii]],newdata = testSparseListTFIDF[[ii]])
+      impPlotsLargeRangerTFIDF[[ii]] <- plot(varImp(rangerLargeModelsTFIDF[[ii]]),top = 15)
+      ii<-ii+1
+}
+
+save(list = c("rangerLargeModelsTFIDF","impPlotsLargeRangerTFIDF","predictLargeRangersTFIDF"),file = "largeRangerResultsTFIDF.RData")
+
+ii<-1
+while (ii < length(speedTrainSparseListTFIDF)+1) {
+  print(paste("Model with sparsity =",ii," has r squared:",rangerLargeModelsTFIDF[[ii]]$finalModel$r.squared))
+  print(paste("Model with sparsity =",ii," has MSE:",rangerLargeModelsTFIDF[[ii]]$finalModel$prediction.error))
+  ii <- ii+1
+}
+runtime$largeRangersTFIDF <- Sys.time() - runtime$largeRangersTFIDF
+```
+
+
+
+#Random Forests - Full Data, Extra Large Model, Bag of Words
+Uses Full data set and 500 trees
+```{r}
+runtime$extraLargeRangers <- Sys.time()
+rangerExtraLargeModels <- list()
+predictExtraLargeRangers <- list()
+impPlotsExtraLargeRanger <- list(list())
+
+ii<-1
+while (ii < length(speedTrainSparseList)+1) {
+      rangerExtraLargeModels[[ii]] <- caret::train(gentrificationChange ~ .,
+                                      data = trainSparseList[[ii]],
+                                      method = "ranger",
+                                      importance = "impurity",
+                                      num.trees = 500)
+      predictExtraLargeRangers[[ii]] <- predict(rangerExtraLargeModels[[ii]],newdata = testSparseList[[ii]])
+      impPlotsExtraLargeRanger[[ii]] <- plot(varImp(rangerExtraLargeModels[[ii]]),top = 15)
+      ii<-ii+1
+}
+
+save(list = c("rangerExtraLargeModels","impPlotsExtraLargeRanger","predictExtraLargeRangers"),file = "extraLargeRangerResults.RData")
+
+ii<-1
+while (ii < 7) {
+  print(paste("Model with sparsity =",ii," has r squared:",rangerExtraLargeModels[[ii]]$finalModel$r.squared))
+  print(paste("Model with sparsity =",ii," has MSE:",rangerExtraLargeModels[[ii]]$finalModel$prediction.error))
+  ii <- ii+1
+}
+
+runtime$extraLargeRangers <- Sys.time() - runtime$extraLargeRangers
+```
+
+#Random Forests - Full Data, Extra Large Model, TF IDF
+Uses the Full data set and 500 trees
+```{r}
+runtime$extraLargeRangersTFIDF <- Sys.time()
+rangerExtraLargeModelsTFIDF <- list()
+predictExtraLargeRangersTFIDF <- list()
+impPlotsExtraLargeRangerTFIDF <- list()
+
+ii<-1
+while (ii <= length(trainSparseListTFIDF)) {
+      rangerExtraLargeModelsTFIDF[[ii]] <- caret::train(gentrificationChange ~ .,
+                                      data = trainSparseListTFIDF[[ii]],
+                                      method = "ranger",
+                                      importance = "impurity",
+                                      num.trees = 500)
+      predictExtraLargeRangersTFIDF[[ii]] <- predict(rangerExtraLargeModelsTFIDF[[ii]],newdata = testSparseListTFIDF[[ii]])
+      impPlotsExtraLargeRangerTFIDF[[ii]] <- plot(varImp(rangerExtraLargeModelsTFIDF[[ii]]),top = 15)
+      ii<-ii+1
+}
+
+save(list = c("rangerExtraLargeModelsTFIDF","impPlotsExtraLargeRangerTFIDF","predictExtraLargeRangersTFIDF"),file = "extraLargeRangerResultsTFIDF.RData")
+
+ii<-1
+while (ii < length(speedTrainSparseListTFIDF)+1) {
+  print(paste("Model with sparsity =",ii," has r squared:",rangerExtraLargeModelsTFIDF[[ii]]$finalModel$r.squared))
+  print(paste("Model with sparsity =",ii," has MSE:",rangerExtraLargeModelsTFIDF[[ii]]$finalModel$prediction.error))
+  ii <- ii+1
+}
+runtime$extraLargeRangersTFIDF <- Sys.time() - runtime$extraLargeRangersTFIDF
+```
+
+#Random Forests - Full Data, Medium Model, Bag of Words
+Uses the Full data set and 15 trees
+```{r}
+runtime$mediumRangers <- Sys.time()
+rangerMediumModels <- list()
+predictMediumRangers <- list()
+impPlotsMediumRanger <- list()
+
+ii<-1
+while (ii < length(speedTrainSparseList)+1) {
+      rangerMediumModels[[ii]] <- caret::train(gentrificationChange ~ .,
+                                      data = trainSparseList[[ii]],
+                                      method = "ranger",
+                                      importance = "impurity",
+                                      num.trees = 15)
+      predictMediumRangers[[ii]] <- predict(rangerMediumModels[[ii]],newdata = testSparseList[[ii]])
+      impPlotsMediumRanger[[ii]] <- plot(varImp(rangerMediumModels[[ii]]),top = 15)
+      ii<-ii+1
+}
+
+save(list = c("rangerMediumModels","impPlotsMediumRanger","predictMediumRangers"),file = "mediumRangerResults.RData")
+
+ii<-1
+while (ii < length(speedTrainSparseList)+1) {
+  print(paste("Model with sparsity =",ii," has r squared:",rangerMediumModels[[ii]]$finalModel$r.squared))
+  print(paste("Model with sparsity =",ii," has MSE:",rangerMediumModels[[ii]]$finalModel$prediction.error))
+  ii <- ii+1
+}
+runtime$mediumRangers <- Sys.time() - runtime$mediumRangers
+```
+
+#Random Forests - Full Data, Medium Model, TF IDF
+Uses the Full data set and 15 trees
+```{r}
+runtime$mediumRangersTFIDF <- Sys.time()
+rangerMediumModelsTFIDF <- list()
+predictMediumRangersTFIDF <- list()
+impPlotsMediumRangerTFIDF <- list()
+
+ii<-1
+while (ii < length(speedTrainSparseListTFIDF)+1) {
+      rangerMediumModelsTFIDF[[ii]] <- caret::train(gentrificationChange ~ .,
+                                      data = trainSparseListTFIDF[[ii]],
+                                      method = "ranger",
+                                      importance = "impurity",
+                                      num.trees = 15)
+      predictMediumRangersTFIDF[[ii]] <- predict(rangerMediumModelsTFIDF[[ii]],newdata = testSparseListTFIDF[[ii]])
+      impPlotsMediumRangerTFIDF[[ii]] <- plot(varImp(rangerMediumModelsTFIDF[[ii]]),top = 15)
+      ii<-ii+1
+}
+
+save(list = c("rangerMediumModelsTFIDF","impPlotsMediumRangerTFIDF","predictMediumRangersTFIDF"),file = "mediumRangerResultsTFIDF.RData")
+
+ii<-1
+while (ii < length(speedTrainSparseListTFIDF)+1) {
+  print(paste("Model with sparsity =",ii," has r squared:",rangerMediumModelsTFIDF[[ii]]$finalModel$r.squared))
+  print(paste("Model with sparsity =",ii," has MSE:",rangerMediumModelsTFIDF[[ii]]$finalModel$prediction.error))
+  ii <- ii+1
+}
+runtime$mediumRangersTFIDF <- Sys.time() - runtime$mediumRangersTFIDF
+```
+
+
+#Random Forests - Small Data, Small Model, Bag of Words
+Uses 1% data set and 15 trees
+```{r}
+runtime$smallRangers <- Sys.time()
+rangerSmallModels <- list()
+predictSmallRangers <- list()
+impPlotsSmallRanger <- list()
+
+ii<-1
+while (ii < length(speedTrainSparseList)+1) {
+      rangerSmallModels[[ii]] <- caret::train(gentrificationChange ~ .,
+                                      data = speedTrainSparseList[[ii]],
+                                      method = "ranger",
+                                      importance = "impurity",
+                                      num.trees = 15)
+      predictSmallRangers[[ii]] <- predict(rangerSmallModels[[ii]],newdata = speedTestSparseList[[ii]])
+      impPlotsSmallRanger[[ii]] <- plot(varImp(rangerSmallModels[[ii]]),top = 15)
+      ii<-ii+1
+}
+
+save(list = c("rangerSmallModels","impPlotsSmallRanger","predictSmallRangers"),file = "smallRangerResults.RData")
+
+ii<-1
+while (ii < 7) {
+  print(paste("Model with sparsity =",ii," has r squared:",rangerSmallModels[[ii]]$finalModel$r.squared))
+  print(paste("Model with sparsity =",ii," has MSE:",rangerSmallModels[[ii]]$finalModel$prediction.error))
+  ii <- ii+1
+}
+runtime$smallRangers <- Sys.time() - runtime$smallRangers
+```
+
+#Random Forests - Small Data, Small Model, TF IDF
+Uses 1% data set and 15 trees
+```{r}
+runtime$smallRangersTFIDF <- Sys.time()
+rangerSmallModelsTFIDF <- list()
+predictSmallRangersTFIDF <- list()
+impPlotsSmallRangerTFIDF <- list()
+
+ii<-1
+while (ii <= length(speedTrainSparseListTFIDF)) {
+      rangerSmallModelsTFIDF[[ii]] <- caret::train(gentrificationChange ~ .,
+                                      data = speedTrainSparseListTFIDF[[ii]],
+                                      method = "ranger",
+                                      importance = "impurity",
+                                      num.trees = 15)
+      predictSmallRangersTFIDF[[ii]] <- predict(rangerSmallModelsTFIDF[[ii]],newdata = speedTestSparseListTFIDF[[ii]])
+      impPlotsSmallRangerTFIDF[[ii]] <- plot(varImp(rangerSmallModelsTFIDF[[ii]]),top = 15)
+      ii<-ii+1
+}
+
+save(list = c("rangerSmallModelsTFIDF","impPlotsSmallRangerTFIDF","predictSmallRangersTFIDF"),file = "smallRangerResultsTFIDF.RData")
+
+ii<-1
+while (ii < 7) {
+  print(paste("Model TFIDF with sparsity =",ii," has r squared:",rangerSmallModelsTFIDF[[ii]]$finalModel$r.squared))
+  print(paste("Model TFIDF with sparsity =",ii," has MSE:",rangerSmallModelsTFIDF[[ii]]$finalModel$prediction.error))
+  ii <- ii+1
+}
+runtime$smallRangersTFIDF <- Sys.time() - runtime$smallRangersTFIDF
+```
+
 
 #Multithreaded Random Forest - Ranger
 ```{r}
-runtime$RF_Multi <- Sys.time()
-
-testSparse2 <-   testSparse[,2:ncol(testSparse)]
-trainSparse2 <- trainSparse[,2:ncol(trainSparse)]
-
-RF_model_MultiThread3 <- caret::train(gentrificationChange ~ .,
-                                      data =trainSparse2,
-                                      method = "ranger",
-                                      importance = "impurity",
-                                      num.trees = 100)
-
-
-predictRF_Multi = predict(RF_model_MultiThread3, newdata=testSparse2)
-
-plot(varImp(RF_model_MultiThread3),top = 15)
-
-
-runtime$RF_Multi <- Sys.time() - runtime$RF_Multi
-```
-
-#Multithreaded Random Forest - Ranger
-```{r}
-runtime$RF_Multi2 <- Sys.time()
-
-RF_model_MultiThread3 <- caret::train(gentrificationChange ~ .,
-                                      data =trainSparse2,
-                                      method = "ranger",
-                                      importance = "impurity",
-                                      num.trees = 600)
-
-
-predictRF_Multi2 = predict(RF_model_MultiThread2, newdata=testSparse2)
-runtime$RF_Multi2 <- Sys.time() - runtime$RF_Multi2
+# runtime$RF_Multi2 <- Sys.time()
+# 
+# RF_model_MultiThread3 <- caret::train(gentrificationChange ~ .,
+#                                       data =trainSparse2,
+#                                       method = "ranger",
+#                                       importance = "impurity",
+#                                       num.trees = 600)
+# 
+# 
+# predictRF_Multi2 = predict(RF_model_MultiThread2, newdata=testSparse2)
+# runtime$RF_Multi2 <- Sys.time() - runtime$RF_Multi2
 ```
 
 ## Running Random Forest Model
 ```{r}
-runtime$RF <- Sys.time()
-mean(tSparse$gentrificationChange,na.rm = TRUE)  #baseline accuracy??
-RF_model = randomForest(gentrificationChange ~ . -tractFIPS, data=trainSparse,na.action = na.omit, ntree = 2)
-save(RF_model,file = "RF_model2.RData")
-
-predictRF = predict(RF_model, newdata=testSparse)
-hist(predictRF)
-varImpPlot(RF_model, n.var = 25)
-RF_model$rsq
-
-runtime$RF <- Sys.time() - runtime$RF
-paste("finished at:",Sys.time())
+# runtime$RF <- Sys.time()
+# mean(tSparse$gentrificationChange,na.rm = TRUE)  #baseline accuracy??
+# RF_model = randomForest(gentrificationChange ~ . -tractFIPS, data=trainSparse,na.action = na.omit, ntree = 2)
+# save(RF_model,file = "RF_model2.RData")
+# 
+# predictRF = predict(RF_model, newdata=testSparse)
+# hist(predictRF)
+# varImpPlot(RF_model, n.var = 25)
+# RF_model$rsq
+# 
+# runtime$RF <- Sys.time() - runtime$RF
+# paste("finished at:",Sys.time())
 ```
 
 $RF300
@@ -373,3 +618,4 @@ What data frame do I need to run this model:
       
       Matrix which have a column for each word used in any review in any of the 28 MSAs
         Each row will be a census tract. The value of each cell will either be a quantifier for how many times the word shows up, or it could be a 1 or 0 for whether it shows up.
+
