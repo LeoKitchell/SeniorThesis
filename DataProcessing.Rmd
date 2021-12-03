@@ -29,7 +29,7 @@ Data is aggregated at the airbnb listing level. Some final data collection steps
 runtime <- list()
 runtime$finalCompilation <- Sys.time()
 ### Stacking Review Data
-path = "./InsideAirbnbData/Zipped_Data/"
+path = "./Data/InsideAirbnbData/Zipped_Data/"
 file_list = list.files(path,'*.csv')
 review_data <- array()
 for (variable in file_list) {
@@ -43,7 +43,7 @@ for (variable in file_list) {
 ```{r}
 runtime$loadAndFilter <- Sys.time()
 ### Prefix "t" added representing they will be used for the text analysis portion. Alternately, "t" for tiny.
-load("Compiled_Thesis_Data.RData")
+load("./Data/OtherData/Compiled_Thesis_Data.RData")
 tReviewData <- review_data %>% filter(!is.na(id)) #removes rows with NA listing IDs. 
 tReviewData$date <- as.Date(tReviewData$date)
 tReviewData <- tReviewData %>% filter(date >= as.Date("2015-01-01") & date <= as.Date("2019-12-31"))  #only keep reviews between census collection time period: 2015-2019
@@ -87,7 +87,7 @@ tractDataNoText <- tractDataNoText %>% group_by(tractFIPS) %>%
                                             numReviews = sum(numReviews))
 
 tractData <- inner_join(tractDataNoText,tractReviews, by = "tractFIPS")
-save(tractDataNoText, file = "./Data/OtherData/TESTtractDataNoText.RData")
+save(tractDataNoText, file = "./Data/OtherData/tractDataNoText.RData")
 rm(list = setdiff(ls(), c("tractDataNoText","tractData","listing_data"))) #cleaning up environment for storage reasons
 runtime$finalCompilation <- Sys.time() - runtime$finalCompilation
 ```
@@ -130,7 +130,7 @@ Creating training data for models from the processed corpus. Provides a checkpoi
 ```{r}
 library(tm)
 library(tidyverse)
-lapply(c("processedFullCorpus.RData","tractDataNoText.RData"),load,envir=.GlobalEnv) #loads necessary data
+lapply(c("./Data/OtherData/processedFullCorpus.RData","./Data/OtherData/tractDataNoText.RData"),load,envir=.GlobalEnv) #loads necessary data
 ```
 
 ## Creating Matrices of Word Frequencies
@@ -608,11 +608,33 @@ What data frame do I need to run this model:
 ```{r}
 library(ranger)
 library(tidyverse)
-list.files(path,'*.csv')
-results <- c(list.files("./OtherData/","*RangerResults.RData"),list.files("./OtherData/","*RangerResultsTFIDF.RData"))
+results <- c(list.files("./Data/OtherData/","*RangerResults.RData"),list.files("./Data/OtherData/","*RangerResultsTFIDF.RData"))
+lapply(X = paste("./Data/OtherData/",results,sep=""),FUN = load,envir=.GlobalEnv,) #loads models
+```
 
-load(c("largeRangerResults.RData","largeRangerResultsTFIDF.RData","extraLargeRangerResults.RData"))
-lapply(c("largeRangerResults.RData","largeRangerResultsTFIDF.RData","extraLargeRangerResults.RData"),load,envir=.GlobalEnv) #loads models
-lapply(c("largeRangerResults.RData","largeRangerResultsTFIDF.RData","extraLargeRangerResults.RData"),load,envir=.GlobalEnv) #loads models
+## Plots
+```{r}
+impPlotsLargeRangerTFIDF
+impPlotsSmallRanger
+impPlotsLargeRanger
+impPlotsExtraLargeRanger
+
+numRangers <- length(ls()[substr(ls(),1,6)=="ranger"])
+ls()[substr(ls(),1,6)=="ranger"]
+sevenLevelSparsity <- c(.5,.6,.7,.8,.9,.95,.99)
+
+ii<-1
+rangerResults <- data.frame(matrix(ncol = 6,nrow = 1))
+colnames(rangerResults) <- c("results","sparsity","rsquared","MSE","NumTrees","mTry")
+rangerResults[1,] <- 1
+while (ii <= length(rangerLargeModels)) {
+  row <- c("RSquared",sevenLevelSparsity[ii],rangerLargeModels[[ii]]$finalModel$r.squared,
+           rangerLargeModels[[ii]]$finalModel$prediction.error,rangerLargeModels[[ii]]$finalModel$num.trees,
+           rangerLargeModels[[ii]]$finalModel$mtry)
+
+  rangerResults <- rbind(rangerResults,row)
+}
+rangerResults <- rangerResults[2:nrow(rangerResults),]
+
 ```
 
