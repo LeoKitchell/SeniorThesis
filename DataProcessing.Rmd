@@ -1,7 +1,7 @@
 ---
 title: "DataProcessing"
 author: "Leo Kitchell"
-date: "11/27/2021"
+date: "12/03/2021"
 output: html_document
 ---
 
@@ -10,12 +10,11 @@ The code below creates models to predict neighborhood (census tract) level gentr
 
 ## Installing Packages & Libraries
 ```{r,warnings = FALSE}
-library(stratification)
 library(caTools)
 library(SnowballC)
+
 library(randomForest)
 library(glmnet)
-
 library(tm)
 library(tidyverse)
 ```
@@ -163,7 +162,7 @@ Similar sets are created for a 1% data sample for faster parameter tuning and tr
 ```{r}
 
 trainProportion <- 0.7     #Uses 70% of cases as a training set and 30% as a test case
-speedFactor <- .01         #Value between 0 and 1. Percent of tracts to use in training and testing set. When running full model set to 1. 
+speedFactor <- .2         #Value between 0 and 1. Percent of tracts to use in training and testing set. When running full model set to 1. 
 
 #Bag of Words Section
 indexSparseTrain <- list()
@@ -246,20 +245,19 @@ while (ii <= length(trainSparseList)) {
                                       method = "ranger",
                                       importance = "impurity",
                                       num.trees = 200)
-      predictLargeRangers[[ii]] <- predict(rangerLargeModels[[ii]],newdata = testSparseList[[ii]])
+#      predictLargeRangers[[ii]] <- predict(rangerLargeModels[[ii]],newdata = testSparseList[[ii]])
       impPlotsLargeRanger[[ii]] <- plot(varImp(rangerLargeModels[[ii]]),top = 15)
-      print(paste("Model",ii,"finished at",Sys.time()))
+      save(list = c("rangerLargeModels","impPlotsLargeRanger","predictLargeRangers"),file = "./Data/OtherData/largeRangerResults.RData")
+      print(paste("Model",ii,"finished and saved at",Sys.time()))
       ii<-ii+1
 }
 
-save(list = c("rangerLargeModels","impPlotsLargeRanger","predictLargeRangers"),file = "./Data/OtherData/largeRangerResults.RData")
-
-testMSELargeRanger <- double()
-ii<-1
-while (ii <= length(rangerLargeModels)) {
-  testMSELargeRanger[ii] <- sum((predictLargeRangers[[ii]]-testData[[1]])**2)/length(testData[[1]])
-  ii <- ii+1
-}
+# testMSELargeRanger <- double()
+# ii<-1
+# while (ii <= length(rangerLargeModels)) {
+#   testMSELargeRanger[ii] <- sum((predictLargeRangers[[ii]]-testData[[1]])**2)/length(testData[[1]])
+#   ii <- ii+1
+# }
 
 runtime$largeRangers <- Sys.time() - runtime$largeRangers
 
@@ -278,30 +276,29 @@ impPlotsLargeRangerTFIDF <- list()
 ii<-1
 while (ii <= length(trainSparseListTFIDF)) {
       rangerLargeModelsTFIDF[[ii]] <- caret::train(gentrificationChange ~ .,
-                                      data = trainSparseListTFIDF[[ii]],
+                                      data = tSparseListTFIDF[[ii]],
                                       method = "ranger",
                                       importance = "impurity",
                                       num.trees = 200)
-      predictLargeRangersTFIDF[[ii]] <- predict(rangerLargeModelsTFIDF[[ii]],newdata = testSparseListTFIDF[[ii]])
+#      predictLargeRangersTFIDF[[ii]] <- predict(rangerLargeModelsTFIDF[[ii]],newdata = testSparseListTFIDF[[ii]])
       impPlotsLargeRangerTFIDF[[ii]] <- plot(varImp(rangerLargeModelsTFIDF[[ii]]),top = 15)
-      print(paste("Model",ii,"finished at",Sys.time()))
+      save(list = c("rangerLargeModelsTFIDF","impPlotsLargeRangerTFIDF","predictLargeRangersTFIDF"),file = "./Data/OtherData/largeRangerResultsTFIDF.RData")
+      print(paste("Model",ii,"finished and saved at",Sys.time()))
       ii<-ii+1
 }
 
-save(list = c("rangerLargeModelsTFIDF","impPlotsLargeRangerTFIDF","predictLargeRangersTFIDF"),file = "./Data/OtherData/largeRangerResultsTFIDF.RData")
-
-testMSELargeRangerTFIDF <- double()
-ii<-1
-while (ii <= length(rangerLargeModelsTFIDF)) {
-  testMSELargeRangerTFIDF[ii] <- sum((predictLargeRangersTFIDF[[ii]]-testData[[2]])**2)/length(testData[[2]])
-  ii <- ii+1
-}
+# 
+# testMSELargeRangerTFIDF <- double()
+# ii<-1
+# while (ii <= length(rangerLargeModelsTFIDF)) {
+#   testMSELargeRangerTFIDF[ii] <- sum((predictLargeRangersTFIDF[[ii]]-testData[[2]])**2)/length(testData[[2]])
+#   ii <- ii+1
+# }
 runtime$largeRangersTFIDF <- Sys.time() - runtime$largeRangersTFIDF
 
 impPlotsLargeRangerTFIDF
 
 ```
-
 
 ## Random Forest - Only Structured Features,  Full Data, Large Model
 ```{r}
@@ -309,6 +306,7 @@ runtime$largeRangersStructured <- Sys.time()
 rangerLargeModelsStructured <- list()
 predictLargeRangersStructured <- list()
 impPlotsLargeRangerStructured <- list()
+tSparseListStructured <- lapply(trainSparseList, "[", c(1:9))
 trainSparseListStructured <- lapply(trainSparseList, "[", c(1:9))
 testSparseListStructured  <- lapply(testSparseList,"[", c(1:9))
 
@@ -316,25 +314,26 @@ testSparseListStructured  <- lapply(testSparseList,"[", c(1:9))
 ii<-1
 while (ii <= length(trainSparseList)) {
       rangerLargeModelsStructured[[ii]] <- caret::train(gentrificationChange ~ .,
-                                      data = trainSparseList[[ii]],
+                                      data = tSparseListStructured[[ii]],
                                       method = "ranger",
                                       importance = "impurity",
                                       num.trees = 200)
-      predictLargeRangersStructured[[ii]] <- predict(rangerLargeModelsStructured[[ii]],newdata = testSparseList[[ii]])
+#      predictLargeRangersStructured[[ii]] <- predict(rangerLargeModelsStructured[[ii]],newdata = testSparseList[[ii]])
       impPlotsLargeRangerStructured[[ii]] <- plot(varImp(rangerLargeModelsStructured[[ii]]),top = 15)
-      print(paste("Model",ii,"finished at",Sys.time()))
+      save(list = c("rangerLargeModelsStructured","impPlotsLargeRangerStructured","predictLargeRangersStructured"),
+           file = "./Data/OtherData/largeRangerResultsStructured.RData")
+      print(paste("Model",ii,"finished and saved at",Sys.time()))
       ii<-ii+1
 }
 
-save(list = c("rangerLargeModelsStructured","impPlotsLargeRangerStructured","predictLargeRangersStructured"),file = "./Data/OtherData/largeRangerResultsStructured.RData")
 
-testMSELargeRangerStructured <- double()
-ii<-1
-while (ii <= length(rangerLargeModelsStructured)) {
-  testMSELargeRangerStructured[ii] <- sum((predictLargeRangersStructured[[ii]]-testData[[1]])**2)/length(testData[[1]])
-  ii <- ii+1
-}
-testMSELargeRangerStructured
+# testMSELargeRangerStructured <- double()
+# ii<-1
+# while (ii <= length(rangerLargeModelsStructured)) {
+#   testMSELargeRangerStructured[ii] <- sum((predictLargeRangersStructured[[ii]]-testData[[1]])**2)/length(testData[[1]])
+#   ii <- ii+1
+# }
+# testMSELargeRangerStructured
 runtime$largeRangersStructured <- Sys.time() - runtime$largeRangersStructured
 ```
 
@@ -344,6 +343,7 @@ runtime$largeRangersStructuredTFIDF <- Sys.time()
 rangerLargeModelsStructuredTFIDF <- list()
 predictLargeRangersStructuredTFIDF <- list()
 impPlotsLargeRangerStructuredTFIDF <- list()
+tSparseListStructuredTFIDF <- lapply(trainSparseListTFIDF, "[", c(1:9))
 trainSparseListStructuredTFIDF <- lapply(trainSparseListTFIDF, "[", c(1:9))
 testSparseListStructuredTFIDF  <- lapply(testSparseListTFIDF,"[", c(1:9))
 
@@ -351,25 +351,25 @@ testSparseListStructuredTFIDF  <- lapply(testSparseListTFIDF,"[", c(1:9))
 ii<-1
 while (ii <= length(trainSparseListTFIDF)) {
       rangerLargeModelsStructuredTFIDF[[ii]] <- caret::train(gentrificationChange ~ .,
-                                      data = trainSparseListTFIDF[[ii]],
+                                      data = tSparseListStructuredTFIDF[[ii]],
                                       method = "ranger",
                                       importance = "impurity",
                                       num.trees = 200)
-      predictLargeRangersStructuredTFIDF[[ii]] <- predict(rangerLargeModelsStructuredTFIDF[[ii]],newdata = testSparseListTFIDF[[ii]])
+ #     predictLargeRangersStructuredTFIDF[[ii]] <- predict(rangerLargeModelsStructuredTFIDF[[ii]],newdata = testSparseListTFIDF[[ii]])
       impPlotsLargeRangerStructuredTFIDF[[ii]] <- plot(varImp(rangerLargeModelsStructuredTFIDF[[ii]]),top = 15)
-      print(paste("Model",ii,"finished at",Sys.time()))
+      save(list = c("rangerLargeModelsStructuredTFIDF","impPlotsLargeRangerStructuredTFIDF","predictLargeRangersStructuredTFIDF"),
+           file = "./Data/OtherData/largeRangerResultsStructuredTFIDF.RData")
+      print(paste("Model",ii,"finished and saved at",Sys.time()))
       ii<-ii+1
 }
 
-save(list = c("rangerLargeModelsStructuredTFIDF","impPlotsLargeRangerStructuredTFIDF","predictLargeRangersStructuredTFIDF"),file = "./Data/OtherData/largeRangerResultsStructuredTFIDF.RData")
-
-testMSELargeRangerStructuredTFIDF <- double()
-ii<-1
-while (ii <= length(rangerLargeModelsStructuredTFIDF)) {
-  testMSELargeRangerStructuredTFIDF[ii] <- sum((predictLargeRangersStructuredTFIDF[[ii]]-testData[[2]])**2)/length(testData[[2]])
-  ii <- ii+1
-}
-testMSELargeRangerStructuredTFIDF
+# testMSELargeRangerStructuredTFIDF <- double()
+# ii<-1
+# while (ii <= length(rangerLargeModelsStructuredTFIDF)) {
+#   testMSELargeRangerStructuredTFIDF[ii] <- sum((predictLargeRangersStructuredTFIDF[[ii]]-testData[[2]])**2)/length(testData[[2]])
+#   ii <- ii+1
+# }
+# testMSELargeRangerStructuredTFIDF
 runtime$largeRangersStructuredTFIDF <- Sys.time() - runtime$largeRangersStructuredTFIDF
 ```
 
@@ -387,24 +387,23 @@ impPlotsExtraLargeRanger <- list(list())
 ii<-1
 while (ii <= length(trainSparseList)) {
       rangerExtraLargeModels[[ii]] <- caret::train(gentrificationChange ~ .,
-                                      data = trainSparseList[[ii]],
+                                      data = tSparseList[[ii]],
                                       method = "ranger",
                                       importance = "impurity",
                                       num.trees = 500)
-      predictExtraLargeRangers[[ii]] <- predict(rangerExtraLargeModels[[ii]],newdata = testSparseList[[ii]])
+#      predictExtraLargeRangers[[ii]] <- predict(rangerExtraLargeModels[[ii]],newdata = testSparseList[[ii]])
       impPlotsExtraLargeRanger[[ii]] <- plot(varImp(rangerExtraLargeModels[[ii]]),top = 15)
-      print(paste("Model",ii,"finished at",Sys.time()))
+      save(list = c("rangerExtraLargeModels","impPlotsExtraLargeRanger","predictExtraLargeRangers"),file = "./Data/OtherData/extraLargeRangerResults.RData")
+      print(paste("Model",ii,"finished and saved at",Sys.time()))
       ii<-ii+1
 }
 
-save(list = c("rangerExtraLargeModels","impPlotsExtraLargeRanger","predictExtraLargeRangers"),file = "./Data/OtherData/extraLargeRangerResults.RData")
-
-testMSEExtraLargeRanger <- double()
-ii<-1
-while (ii <= length(rangerExtraLargeModels)) {
-  testMSEExtraLargeRanger[ii] <- sum((predictLargeRangers[[ii]]-testData[[1]])**2)/length(testData[[1]])
-  ii <- ii+1
-}
+# testMSEExtraLargeRanger <- double()
+# ii<-1
+# while (ii <= length(rangerExtraLargeModels)) {
+#   testMSEExtraLargeRanger[ii] <- sum((predictLargeRangers[[ii]]-testData[[1]])**2)/length(testData[[1]])
+#   ii <- ii+1
+# }
 
 runtime$extraLargeRangers <- Sys.time() - runtime$extraLargeRangers
 ```
@@ -420,24 +419,22 @@ impPlotsExtraLargeRangerTFIDF <- list()
 ii<-1
 while (ii <= length(trainSparseListTFIDF)) {
       rangerExtraLargeModelsTFIDF[[ii]] <- caret::train(gentrificationChange ~ .,
-                                      data = trainSparseListTFIDF[[ii]],
+                                      data = tSparseListTFIDF[[ii]],
                                       method = "ranger",
                                       importance = "impurity",
                                       num.trees = 500)
-      predictExtraLargeRangersTFIDF[[ii]] <- predict(rangerExtraLargeModelsTFIDF[[ii]],newdata = testSparseListTFIDF[[ii]])
+#      predictExtraLargeRangersTFIDF[[ii]] <- predict(rangerExtraLargeModelsTFIDF[[ii]],newdata = testSparseListTFIDF[[ii]])
       impPlotsExtraLargeRangerTFIDF[[ii]] <- plot(varImp(rangerExtraLargeModelsTFIDF[[ii]]),top = 15)
-      print(paste("Model",ii,"finished at",Sys.time()))
+      save(list = c("rangerExtraLargeModelsTFIDF","impPlotsExtraLargeRangerTFIDF","predictExtraLargeRangersTFIDF","runtime"),
+           file = "./Data/OtherData/extraLargeRangerResultsTFIDF.RData")
+      print(paste("Model",ii,"finished and saved at",Sys.time()))
       ii<-ii+1
 }
-
-save(list = c("rangerExtraLargeModelsTFIDF","impPlotsExtraLargeRangerTFIDF","predictExtraLargeRangersTFIDF","runtime"),
-     file = "./Data/OtherData/extraLargeRangerResultsTFIDF.RData")
-
-ii<-1
-while (ii <= length(rangerExtraLargeModels)) {
-  testMSEExtraLargeRanger[ii] <- sum((predictLargeRangers[[ii]]-testData[[2]])**2)/length(testData[[2]])
-  ii <- ii+1
-}
+# ii<-1
+# while (ii <= length(rangerExtraLargeModels)) {
+#   testMSEExtraLargeRanger[ii] <- sum((predictLargeRangers[[ii]]-testData[[2]])**2)/length(testData[[2]])
+#   ii <- ii+1
+# }
 runtime$extraLargeRangersTFIDF <- Sys.time() - runtime$extraLargeRangersTFIDF
 ```
 
@@ -452,24 +449,24 @@ impPlotsMediumRanger <- list()
 ii<-1
 while (ii <= length(trainSparseList)) {
       rangerMediumModels[[ii]] <- caret::train(gentrificationChange ~ .,
-                                      data = trainSparseList[[ii]],
+                                      data = tSparseList[[ii]],
                                       method = "ranger",
                                       importance = "impurity",
                                       num.trees = 15)
-      predictMediumRangers[[ii]] <- predict(rangerMediumModels[[ii]],newdata = testSparseList[[ii]])
+ #     predictMediumRangers[[ii]] <- predict(rangerMediumModels[[ii]],newdata = testSparseList[[ii]])
       impPlotsMediumRanger[[ii]] <- plot(varImp(rangerMediumModels[[ii]]),top = 15)
-      print(paste("Model",ii,"finished at",Sys.time()))
+      save(list = c("rangerMediumModels","impPlotsMediumRanger","predictMediumRangers"),file = "./Data/OtherData/mediumRangerResults.RData")
+      print(paste("Model",ii,"finished and saved at",Sys.time()))
       ii<-ii+1
 }
 
-save(list = c("rangerMediumModels","impPlotsMediumRanger","predictMediumRangers"),file = "./Data/OtherData/mediumRangerResults.RData")
-
-ii<-1
-while (ii <= length(trainSparseList)) {
-  print(paste("Model with sparsity =",ii," has r squared:",rangerMediumModels[[ii]]$finalModel$r.squared))
-  print(paste("Model with sparsity =",ii," has MSE:",rangerMediumModels[[ii]]$finalModel$prediction.error))
-  ii <- ii+1
-}
+# 
+# ii<-1
+# while (ii <= length(trainSparseList)) {
+#   print(paste("Model with sparsity =",ii," has r squared:",rangerMediumModels[[ii]]$finalModel$r.squared))
+#   print(paste("Model with sparsity =",ii," has MSE:",rangerMediumModels[[ii]]$finalModel$prediction.error))
+#   ii <- ii+1
+# }
 runtime$mediumRangers <- Sys.time() - runtime$mediumRangers
 ```
 
@@ -484,61 +481,59 @@ impPlotsMediumRangerTFIDF <- list()
 ii<-1
 while (ii <= length(trainSparseListTFIDF)) {
       rangerMediumModelsTFIDF[[ii]] <- caret::train(gentrificationChange ~ .,
-                                      data = trainSparseListTFIDF[[ii]],
+                                      data = tSparseListTFIDF[[ii]],
                                       method = "ranger",
                                       importance = "impurity",
                                       num.trees = 15)
-      predictMediumRangersTFIDF[[ii]] <- predict(rangerMediumModelsTFIDF[[ii]],newdata = testSparseListTFIDF[[ii]])
+#      predictMediumRangersTFIDF[[ii]] <- predict(rangerMediumModelsTFIDF[[ii]],newdata = testSparseListTFIDF[[ii]])
       impPlotsMediumRangerTFIDF[[ii]] <- plot(varImp(rangerMediumModelsTFIDF[[ii]]),top = 15)
-      print(paste("Model",ii,"finished at",Sys.time()))
+      save(list = c("rangerMediumModelsTFIDF","impPlotsMediumRangerTFIDF","predictMediumRangersTFIDF"),file = "./Data/OtherData/mediumRangerResultsTFIDF.RData")
+      print(paste("Model",ii,"finished and saved at",Sys.time()))
       ii<-ii+1
 }
 
-save(list = c("rangerMediumModelsTFIDF","impPlotsMediumRangerTFIDF","predictMediumRangersTFIDF"),file = "./Data/OtherData/mediumRangerResultsTFIDF.RData")
 
-ii<-1
-while (ii <= length(trainSparseListTFIDF)) {
-  print(paste("Model with sparsity =",ii," has r squared:",rangerMediumModelsTFIDF[[ii]]$finalModel$r.squared))
-  print(paste("Model with sparsity =",ii," has MSE:",rangerMediumModelsTFIDF[[ii]]$finalModel$prediction.error))
-  ii <- ii+1
-}
+# ii<-1
+# while (ii <= length(trainSparseListTFIDF)) {
+#   print(paste("Model with sparsity =",ii," has r squared:",rangerMediumModelsTFIDF[[ii]]$finalModel$r.squared))
+#   print(paste("Model with sparsity =",ii," has MSE:",rangerMediumModelsTFIDF[[ii]]$finalModel$prediction.error))
+#   ii <- ii+1
+# }
 runtime$mediumRangersTFIDF <- Sys.time() - runtime$mediumRangersTFIDF
 ```
 
 
 ## Random Forests - Small Data, Small Model, Bag of Words, Only Structured
 Uses 1% data set and 15 trees
-```{r}
+```{r, warning=FALSE}
 runtime$smallRangersStructured <- Sys.time()
 rangerSmallModelsStructured <- list()
 predictSmallRangersStructured <- list()
 impPlotsSmallRangerStructured <- list()
-speedTrainSparseListStructured <- lapply(speedTrainSparseList, "[", c(1:9))
-speedTestSparseListStructured  <- lapply(speedTestSparseList,"[", c(1:9))
+speedSparseListStructured <- lapply(speedSparseList, "[", c(1:9))
+#speedTestSparseListStructured  <- lapply(speedTestSparseList,"[", c(1:9))
 
 ii<-1
 while (ii <= length(speedTrainSparseList)) {
-      rangerSmallModelsStructured[[ii]] <- caret::train(gentrificationChange ~ .,
-                                      data = speedTrainSparseListStructured[[ii]],
+      rangerSmallModelsStructured[[ii]] <- caret::train(
+                                      x = speedSparseListStructured[[ii]][,-1],
+                                      y = speedSparseListStructured[[ii]][,1][[1]],
                                       method = "ranger",
                                       importance = "impurity",
                                       num.trees = 15)
-      predictSmallRangersStructured[[ii]] <- predict(rangerSmallModels[[ii]],newdata = speedTestSparseListStructured[[ii]])
-      impPlotsSmallRangerStructured[[ii]] <- plot(varImp(rangerSmallModels[[ii]]),top = 15)
-      print(paste("Model",ii,"finished at",Sys.time()))
+#      predictSmallRangersStructured[[ii]] <- predict(rangerSmallModels[[ii]],newdata = speedTestSparseListStructured[[ii]])
+      impPlotsSmallRangerStructured[[ii]] <- plot(varImp(rangerSmallModelsStructured[[ii]]),top = 15)
+      save(list = c("rangerSmallModelsStructured","impPlotsSmallRangerStructured","predictSmallRangersStructured"),
+           file = "./Data/OtherData/smallRangerResultsStructured.RData")
+      print(paste("Model",ii,"finished and saved at",Sys.time()))
       ii<-ii+1
 }
 
-save(list = c("rangerSmallModelsStructured","impPlotsSmallRangerStructured","predictSmallRangersStructured"),file = "./Data/OtherData/smallRangerResultsStructured.RData")
-
-testMSESmallRangerStructured <- double()
 ii<-1
 while (ii <= length(rangerSmallModelsStructured)) {
-  testMSESmallRangerStructured[ii] <- sum((predictSmallRangersStructured[[ii]]-testData[[3]])**2)/length(testData[[3]])
-  ii <- ii+1
+   print(rangerSmallModelsStructured[[ii]]$finalModel$prediction.error)
+   ii <- ii+1
 }
-testMSESmallRangerStructured
-impPlotsSmallRangerStructured
 runtime$smallRangersStructured <- Sys.time() - runtime$smallRangersStructured
 ```
 
@@ -553,7 +548,7 @@ impPlotsSmallRangerTFIDF <- list()
 ii<-1
 while (ii <= length(speedTrainSparseListTFIDF)) {
       rangerSmallModelsTFIDF[[ii]] <- caret::train(gentrificationChange ~ .,
-                                      data = speedTrainSparseListTFIDF[[ii]],
+                                      data = speedSparseListTFIDF[[ii]],
                                       method = "ranger",
                                       importance = "impurity",
                                       num.trees = 15)
