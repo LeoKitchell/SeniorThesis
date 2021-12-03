@@ -302,6 +302,80 @@ impPlotsLargeRangerTFIDF
 
 ```
 
+
+## Random Forest - Only Structured Features,  Full Data, Large Model
+```{r}
+runtime$largeRangersStructured <- Sys.time()
+rangerLargeModelsStructured <- list()
+predictLargeRangersStructured <- list()
+impPlotsLargeRangerStructured <- list()
+trainSparseListStructured <- lapply(trainSparseList, "[", c(1:9))
+testSparseListStructured  <- lapply(testSparseList,"[", c(1:9))
+
+
+ii<-1
+while (ii <= length(trainSparseList)) {
+      rangerLargeModelsStructured[[ii]] <- caret::train(gentrificationChange ~ .,
+                                      data = trainSparseList[[ii]],
+                                      method = "ranger",
+                                      importance = "impurity",
+                                      num.trees = 200)
+      predictLargeRangersStructured[[ii]] <- predict(rangerLargeModelsStructured[[ii]],newdata = testSparseList[[ii]])
+      impPlotsLargeRangerStructured[[ii]] <- plot(varImp(rangerLargeModelsStructured[[ii]]),top = 15)
+      print(paste("Model",ii,"finished at",Sys.time()))
+      ii<-ii+1
+}
+
+save(list = c("rangerLargeModelsStructured","impPlotsLargeRangerStructured","predictLargeRangersStructured"),file = "./Data/OtherData/largeRangerResultsStructured.RData")
+
+testMSELargeRangerStructured <- double()
+ii<-1
+while (ii <= length(rangerLargeModelsStructured)) {
+  testMSELargeRangerStructured[ii] <- sum((predictLargeRangersStructured[[ii]]-testData[[1]])**2)/length(testData[[1]])
+  ii <- ii+1
+}
+testMSELargeRangerStructured
+runtime$largeRangersStructured <- Sys.time() - runtime$largeRangersStructured
+```
+
+## Random Forest - Only Structured Features, Full Data, Large Model, TFIDF
+```{r}
+runtime$largeRangersStructuredTFIDF <- Sys.time()
+rangerLargeModelsStructuredTFIDF <- list()
+predictLargeRangersStructuredTFIDF <- list()
+impPlotsLargeRangerStructuredTFIDF <- list()
+trainSparseListStructuredTFIDF <- lapply(trainSparseListTFIDF, "[", c(1:9))
+testSparseListStructuredTFIDF  <- lapply(testSparseListTFIDF,"[", c(1:9))
+
+
+ii<-1
+while (ii <= length(trainSparseListTFIDF)) {
+      rangerLargeModelsStructuredTFIDF[[ii]] <- caret::train(gentrificationChange ~ .,
+                                      data = trainSparseListTFIDF[[ii]],
+                                      method = "ranger",
+                                      importance = "impurity",
+                                      num.trees = 200)
+      predictLargeRangersStructuredTFIDF[[ii]] <- predict(rangerLargeModelsStructuredTFIDF[[ii]],newdata = testSparseListTFIDF[[ii]])
+      impPlotsLargeRangerStructuredTFIDF[[ii]] <- plot(varImp(rangerLargeModelsStructuredTFIDF[[ii]]),top = 15)
+      print(paste("Model",ii,"finished at",Sys.time()))
+      ii<-ii+1
+}
+
+save(list = c("rangerLargeModelsStructuredTFIDF","impPlotsLargeRangerStructuredTFIDF","predictLargeRangersStructuredTFIDF"),file = "./Data/OtherData/largeRangerResultsStructuredTFIDF.RData")
+
+testMSELargeRangerStructuredTFIDF <- double()
+ii<-1
+while (ii <= length(rangerLargeModelsStructuredTFIDF)) {
+  testMSELargeRangerStructuredTFIDF[ii] <- sum((predictLargeRangersStructuredTFIDF[[ii]]-testData[[2]])**2)/length(testData[[2]])
+  ii <- ii+1
+}
+testMSELargeRangerStructuredTFIDF
+runtime$largeRangersStructuredTFIDF <- Sys.time() - runtime$largeRangersStructuredTFIDF
+```
+
+
+
+
 ## Random Forests - Full Data, Extra Large Model, Bag of Words
 Uses Full data set and 500 trees
 ```{r}
@@ -432,36 +506,40 @@ runtime$mediumRangersTFIDF <- Sys.time() - runtime$mediumRangersTFIDF
 ```
 
 
-## Random Forests - Small Data, Small Model, Bag of Words
+## Random Forests - Small Data, Small Model, Bag of Words, Only Structured
 Uses 1% data set and 15 trees
 ```{r}
-runtime$smallRangers <- Sys.time()
-rangerSmallModels <- list()
-predictSmallRangers <- list()
-impPlotsSmallRanger <- list()
+runtime$smallRangersStructured <- Sys.time()
+rangerSmallModelsStructured <- list()
+predictSmallRangersStructured <- list()
+impPlotsSmallRangerStructured <- list()
+speedTrainSparseListStructured <- lapply(speedTrainSparseList, "[", c(1:9))
+speedTestSparseListStructured  <- lapply(speedTestSparseList,"[", c(1:9))
 
 ii<-1
 while (ii <= length(speedTrainSparseList)) {
-      rangerSmallModels[[ii]] <- caret::train(gentrificationChange ~ .,
-                                      data = speedTrainSparseList[[ii]],
+      rangerSmallModelsStructured[[ii]] <- caret::train(gentrificationChange ~ .,
+                                      data = speedTrainSparseListStructured[[ii]],
                                       method = "ranger",
                                       importance = "impurity",
                                       num.trees = 15)
-      predictSmallRangers[[ii]] <- predict(rangerSmallModels[[ii]],newdata = speedTestSparseList[[ii]])
-      impPlotsSmallRanger[[ii]] <- plot(varImp(rangerSmallModels[[ii]]),top = 15)
+      predictSmallRangersStructured[[ii]] <- predict(rangerSmallModels[[ii]],newdata = speedTestSparseListStructured[[ii]])
+      impPlotsSmallRangerStructured[[ii]] <- plot(varImp(rangerSmallModels[[ii]]),top = 15)
       print(paste("Model",ii,"finished at",Sys.time()))
       ii<-ii+1
 }
 
-save(list = c("rangerSmallModels","impPlotsSmallRanger","predictSmallRangers"),file = "./Data/OtherData/smallRangerResults.RData")
+save(list = c("rangerSmallModelsStructured","impPlotsSmallRangerStructured","predictSmallRangersStructured"),file = "./Data/OtherData/smallRangerResultsStructured.RData")
 
+testMSESmallRangerStructured <- double()
 ii<-1
-while (ii <= length(speedTrainSparseList)) {
-  print(paste("Model with sparsity =",ii," has r squared:",rangerSmallModels[[ii]]$finalModel$r.squared))
-  print(paste("Model with sparsity =",ii," has MSE:",rangerSmallModels[[ii]]$finalModel$prediction.error))
+while (ii <= length(rangerSmallModelsStructured)) {
+  testMSESmallRangerStructured[ii] <- sum((predictSmallRangersStructured[[ii]]-testData[[3]])**2)/length(testData[[3]])
   ii <- ii+1
 }
-runtime$smallRangers <- Sys.time() - runtime$smallRangers
+testMSESmallRangerStructured
+impPlotsSmallRangerStructured
+runtime$smallRangersStructured <- Sys.time() - runtime$smallRangersStructured
 ```
 
 ## Random Forests - Small Data, Small Model, TF IDF
