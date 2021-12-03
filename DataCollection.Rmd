@@ -50,7 +50,8 @@ Data has been downloaded from InsideAirbnb for 28 US cities. These data are comp
 Using rbind to stack airbnb data from each filetype (Listings, Calendar, and Reviews) into three dataframes.
 ```{r, cache=TRUE}
 runtime$stackingData <- Sys.time()
-file_list = list.files("./InsideAirbnbData/Zipped_Data/",'*.csv')
+path <- "./Data/InsideAirbnbData/Zipped_Data/"
+file_list = list.files(path,'*.csv')
 
 listing_data <- array()
 
@@ -106,7 +107,7 @@ runtime$geocodingAirbnbs <- Sys.time() - runtime$geocodingAirbnbs
 ## Reading in Geocoded Airbnb Listings
 For efficiency, the **Geocoding Airbnb Listings** section has been set to not evaluate, and the data which it generated is read in here.
 ```{r}
-listing_data <- read.csv(file = "listing_data_11_29.csv.gz",colClasses = c("fullFIPS2000"="character","fullFIPS2010"="character",
+listing_data <- read.csv(file = "./Data/OtherData/listing_data_11_29.csv.gz",colClasses = c("fullFIPS2000"="character","fullFIPS2010"="character",
                                                                            "tractFIPS2000"="character","tractFIPS2010"="character",
                                                                            "stateAndCountyFIPS2000"="character","stateAndCountyFIPS2010"="character")) #listings that have already been geocoded.
 ```
@@ -187,8 +188,7 @@ runtime$pullingCensus <- Sys.time()-runtime$pullingcensus
 ### Selecting MSAs
 Filtering censusData to tracts contained within MSAs.
 ```{r}
-setwd("./OtherData")
-cbsasRaw <- read.csv("CBSAs_March_2020.csv",header = TRUE,colClasses=c("FIPS.State.Code"="character","FIPS.County.Code"="character"))  #Census delineation file downloaded from "https://www.census.gov/geographies/reference-files/time-series/demo/metro-micro/delineation-files.html" with first two rows deleted and saved as csv.
+cbsasRaw <- read.csv("./Data/OtherData/CBSAs_March_2020.csv",header = TRUE,colClasses=c("FIPS.State.Code"="character","FIPS.County.Code"="character"))  #Census delineation file downloaded from "https://www.census.gov/geographies/reference-files/time-series/demo/metro-micro/delineation-files.html" with first two rows deleted and saved as csv.
 cbsas <- cbsasRaw %>% subset(select=c("CBSA.Title","CBSA.Code","Metropolitan.Micropolitan.Statistical.Area","FIPS.State.Code","FIPS.County.Code")) %>% mutate(FIPS.State.And.County.Code = paste(FIPS.State.Code,FIPS.County.Code,sep = ""))
 
 censusData<- semi_join(censusData,cbsas,by = c("stateAndCountyFIPS"="FIPS.State.And.County.Code"))  #removes all census data from outside of MSAs. 
