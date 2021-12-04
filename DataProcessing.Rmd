@@ -220,7 +220,7 @@ while (ii < length(tSparseList)+1) {
   speedTestSparseListTFIDF[[ii]] <- speedSparseListTFIDF[[ii]][-indexSpeedSparseTrainTFIDF[[ii]],]  
   ii<-ii+1 
 }
-
+ 
 testData <- list(testSparseList[[1]]$gentrificationChange,testSparseListTFIDF[[1]]$gentrificationChange,
               speedTestSparseList[[1]]$gentrificationChange,speedTestSparseListTFIDF[[1]]$gentrificationChange)
 save(testData,file = "./Data/OtherData/testData.RData")
@@ -444,70 +444,6 @@ while (ii <= length(trainSparseListTFIDF)) {
 #   ii <- ii+1
 # }
 runtime$extraLargeRangersTFIDF <- Sys.time() - runtime$extraLargeRangersTFIDF
-```
-
-## Random Forests - Full Data, Medium Model, Bag of Words
-Uses the Full data set and 15 trees
-```{r}
-runtime$mediumRangers <- Sys.time()
-rangerMediumModels <- list()
-predictMediumRangers <- list()
-impPlotsMediumRanger <- list()
-
-ii<-1
-while (ii <= length(trainSparseList)) {
-      rangerMediumModels[[ii]] <- caret::train(gentrificationChange ~ .,
-                                      data = tSparseList[[ii]],
-                                      method = "ranger",
-                                      importance = "impurity",
-                                      num.trees = 15)
- #     predictMediumRangers[[ii]] <- predict(rangerMediumModels[[ii]],newdata = testSparseList[[ii]])
-      impPlotsMediumRanger[[ii]] <- plot(varImp(rangerMediumModels[[ii]]),top = 15)
-      save(list = c("rangerMediumModels","impPlotsMediumRanger","predictMediumRangers"),file = "./Data/OtherData/mediumRangerResults.RData")
-      print(paste("Model",ii,"finished and saved at",Sys.time()))
-      ii<-ii+1
-}
-
-# 
-# ii<-1
-# while (ii <= length(trainSparseList)) {
-#   print(paste("Model with sparsity =",ii," has r squared:",rangerMediumModels[[ii]]$finalModel$r.squared))
-#   print(paste("Model with sparsity =",ii," has MSE:",rangerMediumModels[[ii]]$finalModel$prediction.error))
-#   ii <- ii+1
-# }
-runtime$mediumRangers <- Sys.time() - runtime$mediumRangers
-```
-
-## Random Forests - Full Data, Medium Model, TF IDF
-Uses the Full data set and 15 trees
-```{r}
-runtime$mediumRangersTFIDF <- Sys.time()
-rangerMediumModelsTFIDF <- list()
-predictMediumRangersTFIDF <- list()
-impPlotsMediumRangerTFIDF <- list()
-
-ii<-1
-while (ii <= length(trainSparseListTFIDF)) {
-      rangerMediumModelsTFIDF[[ii]] <- caret::train(gentrificationChange ~ .,
-                                      data = tSparseListTFIDF[[ii]],
-                                      method = "ranger",
-                                      importance = "impurity",
-                                      num.trees = 15)
-#      predictMediumRangersTFIDF[[ii]] <- predict(rangerMediumModelsTFIDF[[ii]],newdata = testSparseListTFIDF[[ii]])
-      impPlotsMediumRangerTFIDF[[ii]] <- plot(varImp(rangerMediumModelsTFIDF[[ii]]),top = 15)
-      save(list = c("rangerMediumModelsTFIDF","impPlotsMediumRangerTFIDF","predictMediumRangersTFIDF"),file = "./Data/OtherData/mediumRangerResultsTFIDF.RData")
-      print(paste("Model",ii,"finished and saved at",Sys.time()))
-      ii<-ii+1
-}
-
-
-# ii<-1
-# while (ii <= length(trainSparseListTFIDF)) {
-#   print(paste("Model with sparsity =",ii," has r squared:",rangerMediumModelsTFIDF[[ii]]$finalModel$r.squared))
-#   print(paste("Model with sparsity =",ii," has MSE:",rangerMediumModelsTFIDF[[ii]]$finalModel$prediction.error))
-#   ii <- ii+1
-# }
-runtime$mediumRangersTFIDF <- Sys.time() - runtime$mediumRangersTFIDF
 ```
 
 
