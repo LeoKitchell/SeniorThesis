@@ -160,9 +160,8 @@ while (ii < length(sparsities)+1) {
 Training and Testing data for different sparsity thresholds are created. 
 Similar sets are created for a 1% data sample for faster parameter tuning and troubleshoot.
 ```{r}
-
 trainProportion <- 0.7     #Uses 70% of cases as a training set and 30% as a test case
-speedFactor <- .2         #Value between 0 and 1. Percent of tracts to use in training and testing set. When running full model set to 1. 
+speedFactor <- .1         #Value between 0 and 1. Percent of tracts to use in training and testing set. When running full model set to 1. 
 
 #Bag of Words Section
 indexSparseTrain <- list()
@@ -228,9 +227,10 @@ save(testData,file = "./Data/OtherData/testData.RData")
 ```
 # Random Forest Models - Training and Testing
 Trains a variety of random forest models using different parameters and data sets. Small data models can be unstable in multithreaded operations. 
-## Random Forests - Full Data, Large Model, Bag of Words
+## Large RFs
+### Random Forests - Full Data, Large Model, Bag of Words
 Uses Full data set and 200 trees
-```{r}
+```{r, warning=FALSE}
 library(caret)
 library(ranger)
 runtime$largeRangers <- Sys.time()
@@ -239,9 +239,10 @@ predictLargeRangers <- list()
 impPlotsLargeRanger <- list(list())
 
 ii<-1
-while (ii <= length(trainSparseList)) {
-      rangerLargeModels[[ii]] <- caret::train(gentrificationChange ~ .,
-                                      data = trainSparseList[[ii]],
+while (ii <= length(tSparseList)) {
+      rangerLargeModels[[ii]] <- caret::train(
+                                      x = tSparseList[[ii]][,-1],
+                                      y = tSparseList[[ii]][,1][[1]],
                                       method = "ranger",
                                       importance = "impurity",
                                       num.trees = 200)
@@ -263,9 +264,9 @@ runtime$largeRangers <- Sys.time() - runtime$largeRangers
 
 ```
 
-## Random Forests - Full Data, Large Model, TF IDF
+### Random Forests - Full Data, Large Model, TF IDF
 Uses the Full data set and 200 trees
-```{r}
+```{r,warning=FALSE}
 library(caret)
 library(ranger)
 runtime$largeRangersTFIDF <- Sys.time()
@@ -274,9 +275,10 @@ predictLargeRangersTFIDF <- list()
 impPlotsLargeRangerTFIDF <- list()
 
 ii<-1
-while (ii <= length(trainSparseListTFIDF)) {
-      rangerLargeModelsTFIDF[[ii]] <- caret::train(gentrificationChange ~ .,
-                                      data = tSparseListTFIDF[[ii]],
+while (ii <= length(tSparseListTFIDF)) {
+      rangerLargeModelsTFIDF[[ii]] <- caret::train(
+                                      x = tSparseListTFIDF[[ii]][,-1],
+                                      y = tSparseListTFIDF[[ii]][,1][[1]],
                                       method = "ranger",
                                       importance = "impurity",
                                       num.trees = 200)
@@ -300,21 +302,22 @@ impPlotsLargeRangerTFIDF
 
 ```
 
-## Random Forest - Only Structured Features,  Full Data, Large Model
-```{r}
+### Random Forest - Only Structured Features,  Full Data, Large Model
+```{r,warning=FALSE}
 runtime$largeRangersStructured <- Sys.time()
 rangerLargeModelsStructured <- list()
 predictLargeRangersStructured <- list()
 impPlotsLargeRangerStructured <- list()
 tSparseListStructured <- lapply(trainSparseList, "[", c(1:9))
-trainSparseListStructured <- lapply(trainSparseList, "[", c(1:9))
-testSparseListStructured  <- lapply(testSparseList,"[", c(1:9))
+#trainSparseListStructured <- lapply(trainSparseList, "[", c(1:9))
+#testSparseListStructured  <- lapply(testSparseList,"[", c(1:9))
 
 
 ii<-1
 while (ii <= length(trainSparseList)) {
-      rangerLargeModelsStructured[[ii]] <- caret::train(gentrificationChange ~ .,
-                                      data = tSparseListStructured[[ii]],
+      rangerLargeModelsStructured[[ii]] <- caret::train(
+                                      x = tSparseListStructured[[ii]][,-1],
+                                      y = tSparseListStructured[[ii]][,1][[1]],
                                       method = "ranger",
                                       importance = "impurity",
                                       num.trees = 200)
@@ -334,10 +337,16 @@ while (ii <= length(trainSparseList)) {
 #   ii <- ii+1
 # }
 # testMSELargeRangerStructured
+ii<-1
+while (ii <= length(trainSparseList)) {
+  print(paste("Model with sparsity =",ii," has r squared:",rangerLargeModelsStructured[[ii]]$finalModel$r.squared))
+  print(paste("Model with sparsity =",ii," has MSE:",rangerLargeModelsStructured[[ii]]$finalModel$prediction.error))
+  ii <- ii+1
+}
 runtime$largeRangersStructured <- Sys.time() - runtime$largeRangersStructured
 ```
 
-## Random Forest - Only Structured Features, Full Data, Large Model, TFIDF
+### Random Forest - Only Structured Features, Full Data, Large Model, TFIDF
 ```{r}
 runtime$largeRangersStructuredTFIDF <- Sys.time()
 rangerLargeModelsStructuredTFIDF <- list()
@@ -350,8 +359,9 @@ testSparseListStructuredTFIDF  <- lapply(testSparseListTFIDF,"[", c(1:9))
 
 ii<-1
 while (ii <= length(trainSparseListTFIDF)) {
-      rangerLargeModelsStructuredTFIDF[[ii]] <- caret::train(gentrificationChange ~ .,
-                                      data = tSparseListStructuredTFIDF[[ii]],
+      rangerLargeModelsStructuredTFIDF[[ii]] <- caret::train(
+                                      x = tSparseListStructuredTFIDF[[ii]][,-1],
+                                      y = tSparseListStructuredTFIDF[[ii]][,1][[1]],
                                       method = "ranger",
                                       importance = "impurity",
                                       num.trees = 200)
@@ -373,12 +383,9 @@ while (ii <= length(trainSparseListTFIDF)) {
 runtime$largeRangersStructuredTFIDF <- Sys.time() - runtime$largeRangersStructuredTFIDF
 ```
 
-
-
-
-## Random Forests - Full Data, Extra Large Model, Bag of Words
+### Random Forests - Full Data, Extra Large Model, Bag of Words
 Uses Full data set and 500 trees
-```{r}
+```{r, warning=FALSE}
 runtime$extraLargeRangers <- Sys.time()
 rangerExtraLargeModels <- list()
 predictExtraLargeRangers <- list()
@@ -386,8 +393,9 @@ impPlotsExtraLargeRanger <- list(list())
 
 ii<-1
 while (ii <= length(trainSparseList)) {
-      rangerExtraLargeModels[[ii]] <- caret::train(gentrificationChange ~ .,
-                                      data = tSparseList[[ii]],
+      rangerExtraLargeModels[[ii]] <- caret::train(
+                                      x = tSparseList[[ii]][[ii]][,-1],
+                                      y = tSparseList[[ii]][[ii]][,1][[1]],
                                       method = "ranger",
                                       importance = "impurity",
                                       num.trees = 500)
@@ -408,7 +416,7 @@ while (ii <= length(trainSparseList)) {
 runtime$extraLargeRangers <- Sys.time() - runtime$extraLargeRangers
 ```
 
-## Random Forests - Full Data, Extra Large Model, TF IDF
+### Random Forests - Full Data, Extra Large Model, TF IDF
 Uses the Full data set and 500 trees
 ```{r}
 runtime$extraLargeRangersTFIDF <- Sys.time()
@@ -513,6 +521,7 @@ impPlotsSmallRangerStructured <- list()
 speedSparseListStructured <- lapply(speedSparseList, "[", c(1:9))
 #speedTestSparseListStructured  <- lapply(speedTestSparseList,"[", c(1:9))
 
+
 ii<-1
 while (ii <= length(speedTrainSparseList)) {
       rangerSmallModelsStructured[[ii]] <- caret::train(
@@ -558,6 +567,7 @@ while (ii <= length(speedTrainSparseListTFIDF)) {
       ii<-ii+1
 }
 
+
 save(list = c("rangerSmallModelsTFIDF","impPlotsSmallRangerTFIDF","predictSmallRangersTFIDF"),file = "./Data/OtherData/smallRangerResultsTFIDF.RData")
 
 ii<-1
@@ -567,8 +577,14 @@ while (ii < 7) {
   ii <- ii+1
 }
 runtime$smallRangersTFIDF <- Sys.time() - runtime$smallRangersTFIDF
+impPlotsLargeRangerStructured
+ii<-1
+while (ii < 9) {
+  #print(paste("Model TFIDF with sparsity =",ii," has r squared:",rangerLargeModelsStructured[[ii]]$finalModel$r.squared))
+  print(paste("Model TFIDF with sparsity =",ii," has MSE:",rangerLargeModelsTFIDF[[ii]]$finalModel$prediction.error))
+  ii <- ii+1
+}
 ```
-
 
 
 # Other Model Training and Testing
@@ -623,6 +639,87 @@ print(Sys.time())
 
 
 
+# Random Forest Results Visualisation
+
+## Loading Trained Model Data and Libraries as Checkpoint
+```{r}
+library(ranger)
+library(tidyverse)
+results <- c(list.files("./Data/OtherData/","*RangerResults.RData"),list.files("./Data/OtherData/","*RangerResultsTFIDF.RData"))
+lapply(X = paste("./Data/OtherData/",results,sep=""),FUN = load,envir=.GlobalEnv,) #loads models
+```
+
+## Creating Data Frame of Large Model Results
+```{r}
+numRangers <- length(ls()[substr(ls(),1,6)=="ranger"])
+ls()[substr(ls(),1,6)=="ranger"]
+sevenLevelSparsity <- c(.5,.6,.7,.8,.9,.95,.99)
+eightLevelSparsity <- c(.4,.5,.6,.7,.8,.9,.95,.99)
+
+ii<-1
+rangerResults <- data.frame(matrix(ncol = 8,nrow = 1))
+colnames(rangerResults) <- c("modelType","trainDataSize","sparsity","rsquared","MSE","NumTrees","mTry","minNodeSize")
+rangerResults[1,] <- 1
+while (ii <= length(rangerExtraLargeModels)) {
+  row1  <- c("Bag of Words",rangerLargeModels[[ii]]$finalModel$num.samples,eightLevelSparsity[ii],
+           rangerLargeModels[[ii]]$finalModel$r.squared,
+           rangerLargeModels[[ii]]$finalModel$prediction.error,
+           rangerLargeModels[[ii]]$finalModel$num.trees,
+           rangerLargeModels[[ii]]$finalModel$mtry,
+           rangerLargeModels[[ii]]$finalModel$min.node.size)
+  row2 <- c("TF IDF",rangerLargeModels[[ii]]$finalModel$num.samples,eightLevelSparsity[ii],
+           rangerLargeModelsTFIDF[[ii]]$finalModel$r.squared,
+           rangerLargeModelsTFIDF[[ii]]$finalModel$prediction.error,
+           rangerLargeModelsTFIDF[[ii]]$finalModel$num.trees,
+           rangerLargeModelsTFIDF[[ii]]$finalModel$mtry,
+           rangerLargeModelsTFIDF[[ii]]$finalModel$min.node.size)
+  row3 <- c("Bag of Words",rangerExtraLargeModelsTFIDF[[ii]]$finalModel$num.samples,eightLevelSparsity[ii],
+           rangerExtraLargeModels[[ii]]$finalModel$r.squared,
+           rangerExtraLargeModels[[ii]]$finalModel$prediction.error,
+           rangerExtraLargeModels[[ii]]$finalModel$num.trees,
+           rangerExtraLargeModels[[ii]]$finalModel$mtry,
+           rangerExtraLargeModels[[ii]]$finalModel$min.node.size)  
+  row4 <- c("TF IDF",rangerExtraLargeModelsTFIDF[[ii]]$finalModel$num.samples,eightLevelSparsity[ii],
+           rangerExtraLargeModelsTFIDF[[ii]]$finalModel$r.squared,
+           rangerExtraLargeModelsTFIDF[[ii]]$finalModel$prediction.error,
+           rangerExtraLargeModelsTFIDF[[ii]]$finalModel$num.trees,
+           rangerExtraLargeModelsTFIDF[[ii]]$finalModel$mtry,
+           rangerExtraLargeModelsTFIDF[[ii]]$finalModel$min.node.size)
+  rangerResults <- rbind(rangerResults,row1,row2,row3,row4)
+  ii <- ii+1
+}
+rangerResults <- rangerResults[2:nrow(rangerResults),]
+rangerResults$modelName <- paste(rangerResults$modelType,rangerResults$NumTrees,sep="; nTrees: ")
+```
+
+## Plotting Model Results
+```{r}
+library(ggplot2)
+
+ggplot(data = rangerResults, aes(x = sparsity, y = as.double(MSE), group = modelName)) +
+      geom_line(aes(color = modelName)) + labs(title = "Model Accuracy by Sparsity and NTrees")
+  ylab("Mean Squared Error")
+```
+
+
+
+# Prediction
+## Predicting Gentrification 2019-2021
+Uses the trained model to predict gentrifiaction using the reviews between 2019 and 2021
+```{r}
+
+
+```
+
+## Mapping Predicted Gentrification
+```{r}
+
+```
+
+
+
+
+# Notes
 
 ```{r}
 #When I run my conversion I'll have a mapping from one airbnb to a block. I'll have two observations, one in 2010 block and one in 2000 block. That #way I know which 2000 and 2010 tracts its in. 
@@ -673,40 +770,64 @@ What data frame do I need to run this model:
 
 
 
-# Random Forest Results Visualisation
+# Thesis Writing & Stucture Details
+## Thesis Formatting
+Footnotes not endnotes.
+Word, probably not latex
+references are (Jain 2021).
+In line images, not at the end.
+Table of summary stats? Package in R that saves table to a .doc file and then I can import that in to a word document.
 
-## Loading Trained Model Data and Libraries as Checkpoint
+## Thesis Layout
+Intro
+  Talks about motivation
+  Preview of results
+Literature Review
+  General quantitve gentrification papers
+  Jain paper
+    The most related paper to mine is this Jain paper. Highlight what I've contributed beyond this paper.
+        Generalizing to a larger sample of cities
+        Letting the model decide important words rather than pre-processing
+Data
+  Describe census data and the airbnb data
+  Describe gentrification index
+  Gentrification maps
+  Summary statistics of variables
+Specification
+  Used random forest
+    Footnotes can say that I used ranger
+  Optimal Parameter Values
+  Say that I used Bag of Words 
+  We also tried TF IDF and regularized linear regressions
+  Did optimization and used MSE as the criteria to select the best model. From here on out only talk about the best Model.
+Results
+  Importance Factors Ranking of Features
+  
+Predictions
+  Using data from Jan 2020-Present we predict gentrification to be highest in these areas. Potentially map of areas. 
+  
+  Can include discussion
+Conclusion
+  Model can be extended 
+
 ```{r}
-library(ranger)
-library(tidyverse)
-results <- c(list.files("./Data/OtherData/","*RangerResults.RData"),list.files("./Data/OtherData/","*RangerResultsTFIDF.RData"))
-lapply(X = paste("./Data/OtherData/",results,sep=""),FUN = load,envir=.GlobalEnv,) #loads models
-```
 
-## Plots
-```{r}
-impPlotsLargeRangerTFIDF
-impPlotsSmallRanger
-impPlotsLargeRanger
-impPlotsExtraLargeRanger
+ii<-8
+a <- list()
+tuneRanger::
 
-numRangers <- length(ls()[substr(ls(),1,6)=="ranger"])
-ls()[substr(ls(),1,6)=="ranger"]
-sevenLevelSparsity <- c(.5,.6,.7,.8,.9,.95,.99)
-
-ii<-1
-rangerResults <- data.frame(matrix(ncol = 7,nrow = 1))
-colnames(rangerResults) <- c("trainDataSize","sparsity","rsquared","MSE","NumTrees","mTry","minNodeSize")
-rangerResults[1,] <- 1
-while (ii <= length(rangerLargeModels)) {
-  row <- c(rangerLargeModels[[ii]]$finalModel$num.samples,sevenLevelSparsity[ii],rangerLargeModels[[ii]]$finalModel$r.squared,
-           rangerLargeModels[[ii]]$finalModel$prediction.error,rangerLargeModels[[ii]]$finalModel$num.trees,
-           rangerLargeModels[[ii]]$finalModel$mtry,rangerLargeModels[[ii]]$finalModel$min.node.size)
-
-  rangerResults <- rbind(rangerResults,row)
-  ii <- ii+1
+while (ii <= length(speedTrainSparseListTFIDF)){
+  a[ii] <- tuneMtryFast(gentrificationChange ~ .,
+                                      data = speedSparseListTFIDF[[ii]],
+                                      method = "ranger",
+                                      importance = "impurity",
+                                      num.trees = 15,
+                                      plot = TRUE,
+                        stepFactor = 1.25,
+                        improve = 0.01,
+                  trace = TRUE)
+  ii<-ii+1
 }
-rangerResults <- rangerResults[2:nrow(rangerResults),]
 
 ```
 
