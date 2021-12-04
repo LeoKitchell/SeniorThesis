@@ -220,7 +220,7 @@ while (ii < length(tSparseList)+1) {
   speedTestSparseListTFIDF[[ii]] <- speedSparseListTFIDF[[ii]][-indexSpeedSparseTrainTFIDF[[ii]],]  
   ii<-ii+1 
 }
- 
+
 testData <- list(testSparseList[[1]]$gentrificationChange,testSparseListTFIDF[[1]]$gentrificationChange,
               speedTestSparseList[[1]]$gentrificationChange,speedTestSparseListTFIDF[[1]]$gentrificationChange)
 save(testData,file = "./Data/OtherData/testData.RData")
@@ -636,7 +636,58 @@ ggplot(data = rangerResults, aes(x = sparsity, y = as.double(MSE), group = model
       geom_line(aes(color = modelName)) + labs(title = "Model Accuracy by Sparsity and NTrees")
   ylab("Mean Squared Error")
 ```
+# Final Models
+```{r}
+runtime <- list()
+mtryOptimal <- 913
+sparseOptimal <- 6
+ntreeOptimal <- 500
 
+tGrid <- expand.grid(
+                     .mtry = mtryOptimal,
+                     .splitrule = "variance",
+                     .min.node.size = 5)
+runtime$optimalRanger1 <- Sys.time()
+# optimalRanger <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
+#                               y = tSparseList[[sparseOptimal]][,1][[1]],
+#                               method = "ranger",
+#                               importance = "impurity",
+#                               num.trees = ntreeOptimal,
+#                               tuneGrid = tGrid)
+# impPlotsOptimalRanger <- plot(varImp(optimalRanger),top = 15)
+# save(list = c("optimalRanger","impPlotsOptimalRanger"),file = "./Data/OtherData/optimalRangerResults.RData")
+# print(paste("Model finished and saved at",Sys.time()))
+runtime$optimalRanger1 <- Sys.time() - runtime$optimalRanger1
+
+
+runtime$optimalRanger2 <- Sys.time()
+sparseOptimal <- 7
+optimalRanger2 <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
+                              y = tSparseList[[sparseOptimal]][,1][[1]],
+                              method = "ranger",
+                              importance = "impurity",
+                              num.trees = ntreeOptimal,
+                              tuneGrid = tGrid)
+impPlotsOptimalRanger2 <- plot(varImp(optimalRanger2),top = 15)
+save(list = c("optimalRanger2","impPlotsOptimalRanger2"),file = "./Data/OtherData/optimalRangerResults2.RData")
+print(paste("Model finished and saved at",Sys.time()))
+runtime$optimalRanger2 <- Sys.time() - runtime$optimalRanger2
+
+
+runtime$optimalRanger3 <- Sys.time()
+sparseOptimal <- 8
+optimalRanger3 <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
+                              y = tSparseList[[sparseOptimal]][,1][[1]],
+                              method = "ranger",
+                              importance = "impurity",
+                              num.trees = ntreeOptimal,
+                              tuneGrid = tGrid)
+impPlotsOptimalRanger3 <- plot(varImp(optimalRanger3),top = 15)
+save(list = c("optimalRanger3","impPlotsOptimalRanger3"),file = "./Data/OtherData/optimalRangerResults3.RData")
+print(paste("Model finished and saved at",Sys.time()))
+runtime$optimalRanger3 <- Sys.time() - runtime$optimalRanger3
+
+```
 
 
 # Prediction
