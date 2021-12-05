@@ -85,11 +85,23 @@ tractDataNoText <- tractDataNoText %>% group_by(tractFIPS) %>%
                                             numListings = n(),
                                             numReviews = sum(numReviews))
 
+
 tractData <- inner_join(tractDataNoText,tractReviews, by = "tractFIPS")
 save(tractDataNoText, file = "./Data/OtherData/tractDataNoText.RData")
 rm(list = setdiff(ls(), c("tractDataNoText","tractData","listing_data"))) #cleaning up environment for storage reasons
 runtime$finalCompilation <- Sys.time() - runtime$finalCompilation
 ```
+
+## Calculating Summary Statistics
+```{r}
+library(gtsummary)
+summary(tractDataNoText[complete.cases(tractDataNoText),])
+head(tractDataNoText)
+tbl_summary(tractDataNoText)
+tractDataNoText %>% select(-tractFIPS) %>% tbl_summary()
+lapply(tractDataNoText,sd, na.rm=TRUE)
+```
+
 
 ## Creating Location Stopwords
 ```{r}
@@ -575,7 +587,7 @@ print(Sys.time())
 
 
 
-# Random Forest Results Visualisation
+# Final Model Selection
 
 ## Loading Trained Model Data and Libraries as Checkpoint
 ```{r}
@@ -587,9 +599,6 @@ lapply(X = paste("./Data/OtherData/",results,sep=""),FUN = load,envir=.GlobalEnv
 
 ## Creating Data Frame of Large Model Results
 ```{r}
-numRangers <- length(ls()[substr(ls(),1,6)=="ranger"])
-ls()[substr(ls(),1,6)=="ranger"]
-sevenLevelSparsity <- c(.5,.6,.7,.8,.9,.95,.99)
 eightLevelSparsity <- c(.4,.5,.6,.7,.8,.9,.95,.99)
 
 ii<-1
@@ -633,10 +642,37 @@ rangerResults$modelName <- paste(rangerResults$modelType,rangerResults$NumTrees,
 library(ggplot2)
 
 ggplot(data = rangerResults, aes(x = sparsity, y = as.double(MSE), group = modelName)) +
-      geom_line(aes(color = modelName)) + labs(title = "Model Accuracy by Sparsity and NTrees")
-  ylab("Mean Squared Error")
+      geom_line(aes(color = modelName)) + labs(title = "Model Accuracy by Sparsity and NTrees") + ylab("Mean Squared Error")
+
+ggplot(data = rangerResults, aes(x = sparsity, y = as.double(rsquared), group = modelName)) +
+      geom_line(aes(color = modelName)) + labs(title = "RSquared by Sparsity and NTrees") + ylab("R Squared")
 ```
-# Final Models
+## Tuning Mtry
+```{r}
+#Runtimes (Intel i9-9900 @ 3.1GHz, 64GB RAM @ 2666MHz):
+  #BOW,   200 Trees, 8 Sparsities:  8.803  Hours
+  #TFIDF, 200 Trees, 8 Sparsities:  8.824  Hours
+  #BOW,   500 Trees, 8 Sparsities:  22.124 Hours
+  #TF IDF,500 Trees, 8 Sparsities:  22.193 Hours
+
+#MSE of Sparsity = 0.99 (~14000 columns) Results not significantly better than Sparsity = 0.9 (~3000 columns).
+#Sparsity of 0.9 used in final model specification.
+sparseOptimal <- 6
+
+#Mtry manually tuned with differing levels of mtryStart, stepFactor, and improve. Final tuning run shown below.
+tunedExtraLargeRanger <- tuneMtryFast( gentrificationChange ~ .,
+                                       data = tSparseList[[sparseOptimal]],
+                                       method = "ranger",
+                                       importance = "impurity",
+                                       num.trees = 400,
+                                       plot = TRUE,
+                                       mtryStart = 913, #2690 provides a similar prediction error
+                                       stepFactor = 1.0025,
+                                       improve = 0.0001,
+                                       trace = TRUE)
+```
+
+## Training Candidate Final Models
 ```{r}
 runtime <- list()
 mtryOptimal <- 913
@@ -648,15 +684,15 @@ tGrid <- expand.grid(
                      .splitrule = "variance",
                      .min.node.size = 5)
 runtime$optimalRanger1 <- Sys.time()
-# optimalRanger <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
-#                               y = tSparseList[[sparseOptimal]][,1][[1]],
-#                               method = "ranger",
-#                               importance = "impurity",
-#                               num.trees = ntreeOptimal,
-#                               tuneGrid = tGrid)
-# impPlotsOptimalRanger <- plot(varImp(optimalRanger),top = 15)
-# save(list = c("optimalRanger","impPlotsOptimalRanger"),file = "./Data/OtherData/optimalRangerResults.RData")
-# print(paste("Model finished and saved at",Sys.time()))
+optimalRanger <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
+                              y = tSparseList[[sparseOptimal]][,1][[1]],
+                              method = "ranger",
+                              importance = "impurity",
+                              num.trees = ntreeOptimal,
+                              tuneGrid = tGrid)
+impPlotsOptimalRanger <- plot(varImp(optimalRanger),top = 15)
+save(list = c("optimalRanger","impPlotsOptimalRanger"),file = "./Data/OtherData/optimalRangerResults.RData")
+print(paste("Model finished and saved at",Sys.time()))
 runtime$optimalRanger1 <- Sys.time() - runtime$optimalRanger1
 
 
@@ -686,6 +722,128 @@ impPlotsOptimalRanger3 <- plot(varImp(optimalRanger3),top = 15)
 save(list = c("optimalRanger3","impPlotsOptimalRanger3"),file = "./Data/OtherData/optimalRangerResults3.RData")
 print(paste("Model finished and saved at",Sys.time()))
 runtime$optimalRanger3 <- Sys.time() - runtime$optimalRanger3
+
+runtime$optimalRanger4 <- Sys.time()
+sparseOptimal <- 5
+optimalRanger4 <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
+                              y = tSparseList[[sparseOptimal]][,1][[1]],
+                              method = "ranger",
+                              importance = "impurity",
+                              num.trees = ntreeOptimal,
+                              tuneGrid = tGrid)
+impPlotsOptimalRanger4 <- plot(varImp(optimalRanger4),top = 15)
+save(list = c("optimalRanger4","impPlotsOptimalRanger4"),file = "./Data/OtherData/optimalRangerResults4.RData")
+print(paste("Model finished and saved at",Sys.time()))
+runtime$optimalRanger4 <- Sys.time() - runtime$optimalRanger4
+
+runtime$optimalRanger5 <- Sys.time()
+sparseOptimal <- 4
+optimalRanger5 <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
+                              y = tSparseList[[sparseOptimal]][,1][[1]],
+                              method = "ranger",
+                              importance = "impurity",
+                              num.trees = ntreeOptimal,
+                              tuneGrid = tGrid)
+impPlotsOptimalRanger5 <- plot(varImp(optimalRanger5),top = 15)
+save(list = c("optimalRanger5","impPlotsOptimalRanger5"),file = "./Data/OtherData/optimalRangerResults5.RData")
+print(paste("Model finished and saved at",Sys.time()))
+runtime$optimalRanger5 <- Sys.time() - runtime$optimalRanger5
+
+runtime$optimalRanger6 <- Sys.time()
+sparseOptimal <- 3
+optimalRanger6 <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
+                              y = tSparseList[[sparseOptimal]][,1][[1]],
+                              method = "ranger",
+                              importance = "impurity",
+                              num.trees = ntreeOptimal,
+                              tuneGrid = tGrid)
+impPlotsOptimalRanger6 <- plot(varImp(optimalRanger6),top = 15)
+save(list = c("optimalRanger6","impPlotsOptimalRanger6"),file = "./Data/OtherData/optimalRangerResults6.RData")
+print(paste("Model finished and saved at",Sys.time()))
+runtime$optimalRanger6 <- Sys.time() - runtime$optimalRanger6
+
+```
+
+## Combining Results of Candidate Final Models
+```{r}
+results <- c(list.files("./Data/OtherData/","optimalRangerResults*"))
+lapply(X = paste("./Data/OtherData/",results,sep=""),FUN = load,envir=.GlobalEnv,)  #loads models
+
+optimalRangerResults <- data.frame(matrix(ncol = 8,nrow = 1))
+colnames(optimalRangerResults) <- c("modelType","trainDataSize","sparsity","rsquared","MSE","NumTrees","mTry","minNodeSize")
+optimalRangerResults[1,] <- 1
+
+row1  <- c("Bag of Words",optimalRanger$finalModel$num.samples,
+           eightLevelSparsity[6],
+           optimalRanger$finalModel$r.squared,
+           optimalRanger$finalModel$prediction.error,
+           optimalRanger$finalModel$num.trees,
+           optimalRanger$finalModel$mtry,
+           optimalRanger$finalModel$min.node.size)
+row2 <- c("Bag of Words",optimalRanger2$finalModel$num.samples,
+           eightLevelSparsity[7],
+           optimalRanger2$finalModel$r.squared,
+           optimalRanger2$finalModel$prediction.error,
+           optimalRanger2$finalModel$num.trees,
+           optimalRanger2$finalModel$mtry,
+           optimalRanger2$finalModel$min.node.size)
+row3 <- c("Bag of Words",optimalRanger3$finalModel$num.samples,
+           eightLevelSparsity[8],
+           optimalRanger3$finalModel$r.squared,
+           optimalRanger3$finalModel$prediction.error,
+           optimalRanger3$finalModel$num.trees,
+           optimalRanger3$finalModel$mtry,
+           optimalRanger3$finalModel$min.node.size)  
+row4 <- c("Bag of Words",optimalRanger4$finalModel$num.samples,
+           eightLevelSparsity[5],
+           optimalRanger4$finalModel$r.squared,
+           optimalRanger4$finalModel$prediction.error,
+           optimalRanger4$finalModel$num.trees,
+           optimalRanger4$finalModel$mtry,
+           optimalRanger4$finalModel$min.node.size)
+row5 <- c("Bag of Words",optimalRanger5$finalModel$num.samples,
+           eightLevelSparsity[4],
+           optimalRanger5$finalModel$r.squared,
+           optimalRanger5$finalModel$prediction.error,
+           optimalRanger5$finalModel$num.trees,
+           optimalRanger5$finalModel$mtry,
+           optimalRanger5$finalModel$min.node.size)  
+
+#pink sweats, erin may ? hip hop. 
+
+optimalRangerResults <- rbind(optimalRangerResults,row1,row2,row3, row4,row5)
+optimalRangerResults <- optimalRangerResults[2:nrow(optimalRangerResults),]
+optimalRangerResults$modelName <- paste(optimalRangerResults$modelType,optimalRangerResults$NumTrees,sep="; nTrees: ")
+optimalRangerResultsTall <- gather(optimalRangerResults,key = measure, value = values, c("rsquared","MSE")) 
+optimalRangerResultsTall
+```
+
+## Comparing Candidate Final Models
+```{r}
+scalingCoef <- floor(mean(as.double(optimalRangerResults$rsquared)/as.double(optimalRangerResults$MSE)))
+scalingCoef <- .065
+colors <- c("rsquared" = "red", "MSE" = "blue")
+
+ggplot(data = optimalRangerResults, aes(x=sparsity, group=1)) +
+  geom_line( aes(y=as.double(MSE)/scalingCoef, color = "MSE")) + 
+  geom_line( aes(y=as.double(rsquared), color = "rsquared")) +
+  scale_color_manual(values = colors) +
+  labs(x = "Model Sparsity",color = "Legend")+
+  scale_y_continuous(
+    name = "R Squared",     # Features of the first axis
+    sec.axis = sec_axis(~.*scalingCoef, name="Mean Squared Error"))  # Add a second axis and specify its features
+
+
+impPlotsOptimalRanger
+impPlotsOptimalRanger2
+impPlotsOptimalRanger3
+impPlotsOptimalRanger4
+impPlotsOptimalRanger5
+
+```
+
+# Final Model Specification
+```{r}
 
 ```
 
@@ -796,25 +954,4 @@ Predictions
   Can include discussion
 Conclusion
   Model can be extended 
-
-```{r}
-
-ii<-8
-a <- list()
-tuneRanger::
-
-while (ii <= length(speedTrainSparseListTFIDF)){
-  a[ii] <- tuneMtryFast(gentrificationChange ~ .,
-                                      data = speedSparseListTFIDF[[ii]],
-                                      method = "ranger",
-                                      importance = "impurity",
-                                      num.trees = 15,
-                                      plot = TRUE,
-                        stepFactor = 1.25,
-                        improve = 0.01,
-                  trace = TRUE)
-  ii<-ii+1
-}
-
-```
 

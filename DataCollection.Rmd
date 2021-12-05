@@ -236,7 +236,7 @@ hist(censusDataWithDistributions$gentrificationIndex)
 
 censusDataWithDistributionsWide <- reshape(censusDataWithDistributions, idvar = "tractFIPS", timevar = "vintage", direction = "wide")
 censusDataWithDistributionsWide <- censusDataWithDistributionsWide %>% mutate(gentrificationChange = gentrificationIndex.2019 - gentrificationIndex.2014)
-hist(censusDataWithDistributionsWide$gentrificationChange,breaks = 20)
+
 ```
 
 ### Calculating Population Growth by Tract
@@ -289,7 +289,40 @@ for (MSA in uniqueMSAs$CBSA.Code) {
   ii<-ii+1
 }
 runtime$mapping <- Sys.time() - runtime$mapping
+
 ```
+## Histograms of Gentrification in Gentrifiable Tracts
+```{r}
+library(ggplot2)
+gentrifiableHistogram <- ggplot(data = gentrifiableCensusDataWithDistributionsWide, aes(gentrificationChange)) +
+                         geom_histogram() +
+                         labs(x = "Change in Gentrification Index", y = "# of Tracts",title = "Gentrification Change Index") +
+                         theme(axis.title.x = element_text(size=15), axis.title.y = element_text(size = 15))
+gentrification2014Histogram <-  ggplot(data = gentrifiableCensusDataWithDistributionsWide, aes(gentrificationIndex.2014)) +
+                         geom_histogram() +
+                         labs(x = "Gentrification Index", y = "# of Tracts",title = "Gentrification Index in 2014")+
+                          theme(axis.title.x = element_text(size=15), axis.title.y = element_text(size = 15))
+gentrification2019Histogram <-  ggplot(data = gentrifiableCensusDataWithDistributionsWide, aes(gentrificationIndex.2019)) +
+                         geom_histogram() +
+                         labs(x = "Gentrification Index", y = "# of Tracts",title = "Gentrification Index in 2019")+
+                         theme(axis.title.x = element_text(size=15), axis.title.y = element_text(size = 15))
+
+gentrifiableHistogram
+ggsave(filename = "./Writing/Figures/GentrifiableHistogram.PNG",width = 4.5 , height = 3)
+gentrification2014Histogram
+ggsave(filename = "./Writing/Figures/GentrificationHistogram2014.PNG",width = 4.5 , height = 3)
+gentrification2019Histogram
+ggsave(filename = "./Writing/Figures/GentrificationHistogram2019.PNG",width = 4.5 , height = 3)
+
+hist(gentrifiableCensusDataWithDistributionsWide$gentrificationIndex.2014,breaks = 20, color)
+hist(gentrifiableCensusDataWithDistributionsWide$gentrificationIndex.2019,breaks = 20)
+hist(gentrifiableCensusDataWithDistributionsWide$gentrificationChange,breaks = 20)
+
+summary(gentrifiableCensusDataWithDistributionsWide$gentrificationIndex.2014)
+summary(gentrifiableCensusDataWithDistributionsWide$gentrificationIndex.2019)
+```
+
+
 # Saving Relevant Data 
 Saving compiled data to a .RData file for processing in a separate .Rmd file. 
 ```{r}
