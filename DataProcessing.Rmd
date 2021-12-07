@@ -67,6 +67,20 @@ tCensusData <- gentrifiableCensusDataWithDistributionsWide %>% subset(select = c
 tractData  <- inner_join(tCensusData,airbnbData,by = c("tractFIPS"="tractFIPS2010"))
 ```
 
+## Airbnb Reviews in Gentrifiable Tracts by Year
+To see entire sample, do not run date filtering lines from "Eliminating Review Data Outside..." code section
+```{r}
+cumulativeReviewFreq = c(0, cumsum(tractData$date)) 
+plot(x = tractData$date,cumulativeReviewFreq)
+cumulativeReviewPlot <- ggplot(data = tractData,aes(x=as.Date(tractData$date)))
+
+cumulativeReviewPlot <- ggplot(data = tractData, aes(x=as.Date(tractData$date))) + stat_ecdf() +#geom_density(aes(x=as.Date(tractData$date)))
+  labs(x="Date of Review", y="Cumulative Percent of Reviews")
+cumulativeReviewPlot
+save(cumulativeReviewPlot,file = "./Writing/Figures/CumulativePercentofReviews.PNG")
+```
+
+
 ## Aggregating Airbnb Data to Tract Level
 ```{r}
 tractReviews <- tractData %>% subset(select = c(tractFIPS,comments))
@@ -88,20 +102,15 @@ tractDataNoText <- tractDataNoText %>% group_by(tractFIPS) %>%
 
 tractData <- inner_join(tractDataNoText,tractReviews, by = "tractFIPS")
 save(tractDataNoText, file = "./Data/OtherData/tractDataNoText.RData")
-rm(list = setdiff(ls(), c("tractDataNoText","tractData","listing_data"))) #cleaning up environment for storage reasons
+rm(list = setdiff(ls(), c("tractDataNoText","tractData","listing_data", "runtime"))) #cleaning up environment for storage reasons
 runtime$finalCompilation <- Sys.time() - runtime$finalCompilation
 ```
 
 ## Calculating Summary Statistics
 ```{r}
-library(gtsummary)
 summary(tractDataNoText[complete.cases(tractDataNoText),])
-head(tractDataNoText)
-tbl_summary(tractDataNoText)
-tractDataNoText %>% select(-tractFIPS) %>% tbl_summary()
 lapply(tractDataNoText,sd, na.rm=TRUE)
 ```
-
 
 ## Creating Location Stopwords
 ```{r}
@@ -151,6 +160,7 @@ sparsities <- c(.4,.5,.6,.7,.8,.9,.95,.99)
 frequencies <- DocumentTermMatrix(corpus)
 tfidFrequencies <- DocumentTermMatrix(corpus,control = list(weighting = function(x) weightTfIdf(x, normalize = FALSE)))
 
+
 sparseList       <- list()
 tSparseList      <- list()
 sparseListTFIDF   <- list()
@@ -166,6 +176,12 @@ while (ii < length(sparsities)+1) {
   colnames(tSparseListTFIDF[[ii]]) <- make.names(colnames(tSparseListTFIDF[[ii]]))
   ii <- ii+1
 }
+
+sparsityLevels <- data.frame(matrix(NA,length(sparsities),2))
+sparsityLevels$sparsities <- matrix(sparsities)
+sparsityLevels$ncol <- unlist(lapply(tSparseList, ncol))
+ggplot(data = sparsityLevels) + geom_col(aes(x=as.character(sparsities), y=ncol))+
+  labs(x = "Sparsity Threshold", y = "Number of Unique Stems")
 ```
 
 ## Creating and Combining Predictor Data
@@ -235,7 +251,7 @@ while (ii < length(tSparseList)+1) {
 
 testData <- list(testSparseList[[1]]$gentrificationChange,testSparseListTFIDF[[1]]$gentrificationChange,
               speedTestSparseList[[1]]$gentrificationChange,speedTestSparseListTFIDF[[1]]$gentrificationChange)
-save(testData,file = "./Data/OtherData/testData.RData")
+#save(testData,file = "./Data/OtherData/testData.RData")
 ```
 # Random Forest Models - Training and Testing
 Trains a variety of random forest models using different parameters and data sets. Small data models can be unstable in multithreaded operations. 
@@ -641,11 +657,14 @@ rangerResults$modelName <- paste(rangerResults$modelType,rangerResults$NumTrees,
 ```{r}
 library(ggplot2)
 
-ggplot(data = rangerResults, aes(x = sparsity, y = as.double(MSE), group = modelName)) +
-      geom_line(aes(color = modelName)) + labs(title = "Model Accuracy by Sparsity and NTrees") + ylab("Mean Squared Error")
+modelAccuracybySparsity <- ggplot(data = rangerResults, aes(x = sparsity, y = as.double(MSE), group = modelName)) +
+      geom_line(aes(color = modelName)) + labs(title = "Model Accuracy by Sparsity and NTrees", x = "Text Sparsity",subtitle = "Optimal mTry  Selected From 2, sqrt(n), n",color = "Model Type") + ylab("Mean Squared Error") + theme(legend.position = "bottom", legend.box = "vertical") + guides(color=guide_legend(nrow=2, byrow=TRUE))
+modelAccuracybySparsity
+ggsave(filename = "./Writing/Figures/ModelAccuracyBySparsity.PNG")
 
 ggplot(data = rangerResults, aes(x = sparsity, y = as.double(rsquared), group = modelName)) +
-      geom_line(aes(color = modelName)) + labs(title = "RSquared by Sparsity and NTrees") + ylab("R Squared")
+      geom_line(aes(color = modelName)) + labs(title = "RSquared by Sparsity and NTrees", x = "Text Sparsity", subtitle = "Optimal mTry  Selected From 2, sqrt(n), n",color = "Model Type" ) + ylab("R Squared") + theme(legend.position = "bottom",legend.box="vertical")
+
 ```
 ## Tuning Mtry
 ```{r}
@@ -657,22 +676,23 @@ ggplot(data = rangerResults, aes(x = sparsity, y = as.double(rsquared), group = 
 
 #MSE of Sparsity = 0.99 (~14000 columns) Results not significantly better than Sparsity = 0.9 (~3000 columns).
 #Sparsity of 0.9 used in final model specification.
-sparseOptimal <- 6
+sparseOptimal <- 6 #optimal mtry is 913 and 2690
+sparseOptimal <- 5 #optimal mtry is 488
 
 #Mtry manually tuned with differing levels of mtryStart, stepFactor, and improve. Final tuning run shown below.
 tunedExtraLargeRanger <- tuneMtryFast( gentrificationChange ~ .,
                                        data = tSparseList[[sparseOptimal]],
                                        method = "ranger",
                                        importance = "impurity",
-                                       num.trees = 400,
+                                       num.trees = 50,
                                        plot = TRUE,
-                                       mtryStart = 913, #2690 provides a similar prediction error
-                                       stepFactor = 1.0025,
-                                       improve = 0.0001,
+                                       mtryStart = 800,#488,#913, #2690 provides a similar prediction error
+                                       stepFactor = 1.1,
+                                       improve = 0.00001,
                                        trace = TRUE)
 ```
 
-## Training Candidate Final Models
+## Training Candidate Final Models - Mtry of 913
 ```{r}
 runtime <- list()
 mtryOptimal <- 913
@@ -764,7 +784,108 @@ runtime$optimalRanger6 <- Sys.time() - runtime$optimalRanger6
 
 ```
 
-## Combining Results of Candidate Final Models
+## Training Candidate Final Models - Mtry of 488
+```{r}
+mtryOptimal <- 488
+ntreeOptimal <- 500
+tGrid <- expand.grid(
+                     .mtry = mtryOptimal,
+                     .splitrule = "variance",
+                     .min.node.size = 5)
+
+sparseOptimal <-2
+runtime$sparsityFiveOptimalRanger2 <- Sys.time()
+sparsityFiveOptimalRanger2 <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
+                              y = tSparseList[[sparseOptimal]][,1][[1]],
+                              method = "ranger",
+                              importance = "impurity",
+                              num.trees = ntreeOptimal,
+                              tuneGrid = tGrid)
+impPlotsSparsityFiveOptimalRanger2 <- plot(varImp(sparsityFiveOptimalRanger2),top = 15)
+save(list = c("sparsityFiveOptimalRanger2","impPlotsSparsityFiveOptimalRanger2"),file = "./Data/OtherData/sparsityFiveOptimalRanger2.RData")
+print(paste("Model finished and saved at",Sys.time()))
+runtime$sparsityFiveOptimalRanger2 <- Sys.time() - runtime$sparsityFiveOptimalRanger2
+
+sparseOptimal <-3
+runtime$sparsityFiveOptimalRanger3 <- Sys.time()
+sparsityFiveOptimalRanger3 <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
+                              y = tSparseList[[sparseOptimal]][,1][[1]],
+                              method = "ranger",
+                              importance = "impurity",
+                              num.trees = ntreeOptimal,
+                              tuneGrid = tGrid)
+impPlotsSparsityFiveOptimalRanger3 <- plot(varImp(sparsityFiveOptimalRanger3),top = 15)
+save(list = c("sparsityFiveOptimalRanger3","impPlotsSparsityFiveOptimalRanger3"),file = "./Data/OtherData/sparsityFiveOptimalRanger3.RData")
+print(paste("Model finished and saved at",Sys.time()))
+runtime$sparsityFiveOptimalRanger3 <- Sys.time() - runtime$sparsityFiveOptimalRanger3
+
+sparseOptimal <-4
+runtime$sparsityFiveOptimalRanger2 <- Sys.time()
+sparsityFiveOptimalRanger4 <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
+                              y = tSparseList[[sparseOptimal]][,1][[1]],
+                              method = "ranger",
+                              importance = "impurity",
+                              num.trees = ntreeOptimal,
+                              tuneGrid = tGrid)
+impPlotsSparsityFiveOptimalRanger4 <- plot(varImp(sparsityFiveOptimalRanger4),top = 15)
+save(list = c("sparsityFiveOptimalRanger4","impPlotsSparsityFiveOptimalRanger4"),file = "./Data/OtherData/sparsityFiveOptimalRanger4.RData")
+print(paste("Model finished and saved at",Sys.time()))
+runtime$sparsityFiveOptimalRanger4 <- Sys.time() - runtime$sparsityFiveOptimalRanger4
+
+sparseOptimal <-5
+runtime$sparsityFiveOptimalRanger5 <- Sys.time()
+sparsityFiveOptimalRanger5 <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
+                              y = tSparseList[[sparseOptimal]][,1][[1]],
+                              method = "ranger",
+                              importance = "impurity",
+                              num.trees = ntreeOptimal,
+                              tuneGrid = tGrid)
+impPlotsSparsityFiveOptimalRanger5 <- plot(varImp(sparsityFiveOptimalRanger5),top = 15)
+save(list = c("sparsityFiveOptimalRanger5","impPlotsSparsityFiveOptimalRanger5"),file = "./Data/OtherData/sparsityFiveOptimalRanger5.RData")
+print(paste("Model finished and saved at",Sys.time()))
+runtime$sparsityFiveOptimalRanger5 <- Sys.time() - runtime$sparsityFiveOptimalRanger5
+
+sparseOptimal <-6
+runtime$sparsityFiveOptimalRanger6 <- Sys.time()
+sparsityFiveOptimalRanger6 <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
+                              y = tSparseList[[sparseOptimal]][,1][[1]],
+                              method = "ranger",
+                              importance = "impurity",
+                              num.trees = ntreeOptimal,
+                              tuneGrid = tGrid)
+impPlotsSparsityFiveOptimalRanger6 <- plot(varImp(sparsityFiveOptimalRanger6),top = 15)
+save(list = c("sparsityFiveOptimalRanger6","impPlotsSparsityFiveOptimalRanger6"),file = "./Data/OtherData/sparsityFiveOptimalRanger6.RData")
+print(paste("Model finished and saved at",Sys.time()))
+runtime$sparsityFiveOptimalRanger6 <- Sys.time() - runtime$sparsityFiveOptimalRanger6
+
+sparseOptimal <-7
+runtime$sparsityFiveOptimalRanger7 <- Sys.time()
+sparsityFiveOptimalRanger7 <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
+                              y = tSparseList[[sparseOptimal]][,1][[1]],
+                              method = "ranger",
+                              importance = "impurity",
+                              num.trees = ntreeOptimal,
+                              tuneGrid = tGrid)
+impPlotsSparsityFiveOptimalRanger7 <- plot(varImp(sparsityFiveOptimalRanger7),top = 15)
+save(list = c("sparsityFiveOptimalRanger7","impPlotsSparsityFiveOptimalRanger7"),file = "./Data/OtherData/sparsityFiveOptimalRanger7.RData")
+print(paste("Model finished and saved at",Sys.time()))
+runtime$sparsityFiveOptimalRanger7 <- Sys.time() - runtime$sparsityFiveOptimalRanger7
+
+sparseOptimal <-8
+runtime$sparsityFiveOptimalRanger8 <- Sys.time()
+sparsityFiveOptimalRanger8 <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
+                              y = tSparseList[[sparseOptimal]][,1][[1]],
+                              method = "ranger",
+                              importance = "impurity",
+                              num.trees = ntreeOptimal,
+                              tuneGrid = tGrid)
+impPlotsSparsityFiveOptimalRanger8 <- plot(varImp(sparsityFiveOptimalRanger8),top = 15)
+save(list = c("sparsityFiveOptimalRanger8","impPlotsSparsityFiveOptimalRanger8"),file = "./Data/OtherData/sparsityFiveOptimalRanger8.RData")
+print(paste("Model finished and saved at",Sys.time()))
+runtime$sparsityFiveOptimalRanger8 <- Sys.time() - runtime$sparsityFiveOptimalRanger8
+```
+
+## Combining Results of Candidate Final Models - Mtry of 913
 ```{r}
 results <- c(list.files("./Data/OtherData/","optimalRangerResults*"))
 lapply(X = paste("./Data/OtherData/",results,sep=""),FUN = load,envir=.GlobalEnv,)  #loads models
@@ -773,6 +894,7 @@ optimalRangerResults <- data.frame(matrix(ncol = 8,nrow = 1))
 colnames(optimalRangerResults) <- c("modelType","trainDataSize","sparsity","rsquared","MSE","NumTrees","mTry","minNodeSize")
 optimalRangerResults[1,] <- 1
 
+#I had only orignally planned to do this for 3 rows so the non listed implementation is not ideal. Sorry.
 row1  <- c("Bag of Words",optimalRanger$finalModel$num.samples,
            eightLevelSparsity[6],
            optimalRanger$finalModel$r.squared,
@@ -808,61 +930,451 @@ row5 <- c("Bag of Words",optimalRanger5$finalModel$num.samples,
            optimalRanger5$finalModel$num.trees,
            optimalRanger5$finalModel$mtry,
            optimalRanger5$finalModel$min.node.size)  
+row6 <- c("Bag of Words",optimalRanger6$finalModel$num.samples,
+           eightLevelSparsity[3],
+           optimalRanger6$finalModel$r.squared,
+           optimalRanger6$finalModel$prediction.error,
+           optimalRanger6$finalModel$num.trees,
+           optimalRanger6$finalModel$mtry,
+           optimalRanger6$finalModel$min.node.size)  
+row7 <- c("Bag of Words",optimalRanger7$finalModel$num.samples,
+           eightLevelSparsity[2],
+           optimalRanger7$finalModel$r.squared,
+           optimalRanger7$finalModel$prediction.error,
+           optimalRanger7$finalModel$num.trees,
+           optimalRanger7$finalModel$mtry,
+           optimalRanger7$finalModel$min.node.size)  
 
-#pink sweats, erin may ? hip hop. 
-
-optimalRangerResults <- rbind(optimalRangerResults,row1,row2,row3, row4,row5)
+optimalRangerResults <- rbind(optimalRangerResults,row1,row2,row3, row4,row5, row6, row7)
 optimalRangerResults <- optimalRangerResults[2:nrow(optimalRangerResults),]
 optimalRangerResults$modelName <- paste(optimalRangerResults$modelType,optimalRangerResults$NumTrees,sep="; nTrees: ")
-optimalRangerResultsTall <- gather(optimalRangerResults,key = measure, value = values, c("rsquared","MSE")) 
-optimalRangerResultsTall
 ```
 
-## Comparing Candidate Final Models
+
+## Comparing Candidate Final Models - Mtry of 913
 ```{r}
-scalingCoef <- floor(mean(as.double(optimalRangerResults$rsquared)/as.double(optimalRangerResults$MSE)))
 scalingCoef <- .065
-colors <- c("rsquared" = "red", "MSE" = "blue")
+colors <- c("R Squared" = "red", "MSE" = "blue")
 
 ggplot(data = optimalRangerResults, aes(x=sparsity, group=1)) +
   geom_line( aes(y=as.double(MSE)/scalingCoef, color = "MSE")) + 
-  geom_line( aes(y=as.double(rsquared), color = "rsquared")) +
+  geom_line( aes(y=as.double(rsquared), color = "R Squared")) +
   scale_color_manual(values = colors) +
-  labs(x = "Model Sparsity",color = "Legend")+
+  labs(x = "Text Sparsity",color = "Legend")+ theme(legend.position = "bottom") +
   scale_y_continuous(
     name = "R Squared",     # Features of the first axis
     sec.axis = sec_axis(~.*scalingCoef, name="Mean Squared Error"))  # Add a second axis and specify its features
-
 
 impPlotsOptimalRanger
 impPlotsOptimalRanger2
 impPlotsOptimalRanger3
 impPlotsOptimalRanger4
 impPlotsOptimalRanger5
-
+impPlotsOptimalRanger6
+impPlotsOptimalRanger7
 ```
+
+
+## Combining Results of Candidate Final Models - Mtry of 488
+```{r}
+results <- c(list.files("./Data/OtherData/","sparsityFive*"))
+lapply(X = paste("./Data/OtherData/",results,sep=""),FUN = load,envir=.GlobalEnv,)  #loads models
+eightLevelSparsity <- c(.4,.5,.6,.7,.8,.9,.95,.99)
+
+sparsityFiveOptimalRangerResults <- data.frame(matrix(ncol = 8,nrow = 1))
+colnames(sparsityFiveOptimalRangerResults) <- c("modelType","trainDataSize","sparsity","rsquared","MSE","NumTrees","mTry","minNodeSize")
+sparsityFiveOptimalRangerResults[1,] <- 1
+
+#I had only orignally planned to do this for 3 rows so the non listed implementation is not ideal. Sorry.
+
+row2 <- c("Bag of Words",sparsityFiveOptimalRanger2$finalModel$num.samples,
+           eightLevelSparsity[2],
+           sparsityFiveOptimalRanger2$finalModel$r.squared,
+           sparsityFiveOptimalRanger2$finalModel$prediction.error,
+           sparsityFiveOptimalRanger2$finalModel$num.trees,
+           sparsityFiveOptimalRanger2$finalModel$mtry,
+           sparsityFiveOptimalRanger2$finalModel$min.node.size)
+row3 <- c("Bag of Words",sparsityFiveOptimalRanger3$finalModel$num.samples,
+           eightLevelSparsity[3],
+           sparsityFiveOptimalRanger3$finalModel$r.squared,
+           sparsityFiveOptimalRanger3$finalModel$prediction.error,
+           sparsityFiveOptimalRanger3$finalModel$num.trees,
+           sparsityFiveOptimalRanger3$finalModel$mtry,
+           sparsityFiveOptimalRanger3$finalModel$min.node.size)  
+row4 <- c("Bag of Words",sparsityFiveOptimalRanger4$finalModel$num.samples,
+           eightLevelSparsity[4],
+           sparsityFiveOptimalRanger4$finalModel$r.squared,
+           sparsityFiveOptimalRanger4$finalModel$prediction.error,
+           sparsityFiveOptimalRanger4$finalModel$num.trees,
+           sparsityFiveOptimalRanger4$finalModel$mtry,
+           sparsityFiveOptimalRanger4$finalModel$min.node.size)
+row5 <- c("Bag of Words",sparsityFiveOptimalRanger5$finalModel$num.samples,
+           eightLevelSparsity[5],
+           sparsityFiveOptimalRanger5$finalModel$r.squared,
+           sparsityFiveOptimalRanger5$finalModel$prediction.error,
+           sparsityFiveOptimalRanger5$finalModel$num.trees,
+           sparsityFiveOptimalRanger5$finalModel$mtry,
+           sparsityFiveOptimalRanger5$finalModel$min.node.size)  
+row6 <- c("Bag of Words",sparsityFiveOptimalRanger6$finalModel$num.samples,
+           eightLevelSparsity[6],
+           sparsityFiveOptimalRanger6$finalModel$r.squared,
+           sparsityFiveOptimalRanger6$finalModel$prediction.error,
+           sparsityFiveOptimalRanger6$finalModel$num.trees,
+           sparsityFiveOptimalRanger6$finalModel$mtry,
+           sparsityFiveOptimalRanger6$finalModel$min.node.size)  
+row7 <- c("Bag of Words",sparsityFiveOptimalRanger7$finalModel$num.samples,
+           eightLevelSparsity[7],
+           sparsityFiveOptimalRanger7$finalModel$r.squared,
+           sparsityFiveOptimalRanger7$finalModel$prediction.error,
+           sparsityFiveOptimalRanger7$finalModel$num.trees,
+           sparsityFiveOptimalRanger7$finalModel$mtry,
+           sparsityFiveOptimalRanger7$finalModel$min.node.size)  
+row8 <- c("Bag of Words",sparsityFiveOptimalRanger8$finalModel$num.samples,
+           eightLevelSparsity[8],
+           sparsityFiveOptimalRanger8$finalModel$r.squared,
+           sparsityFiveOptimalRanger8$finalModel$prediction.error,
+           sparsityFiveOptimalRanger8$finalModel$num.trees,
+           sparsityFiveOptimalRanger8$finalModel$mtry,
+           sparsityFiveOptimalRanger8$finalModel$min.node.size) 
+
+sparsityFiveOptimalRangerResults <- rbind(sparsityFiveOptimalRangerResults,row2,row3, row4,row5, row6, row7, row8)
+sparsityFiveOptimalRangerResults <- sparsityFiveOptimalRangerResults[2:nrow(sparsityFiveOptimalRangerResults),]
+sparsityFiveOptimalRangerResults$modelName <- paste(sparsityFiveOptimalRangerResults$modelType,sparsityFiveOptimalRangerResults$NumTrees,sep="; nTrees: ")
+```
+
+## Comparing Candidate Final Models - Mtry of 488
+```{r}
+scalingCoef <- .067
+colors <- c("R Squared" = "red", "MSE" = "blue")
+
+ggplot(data = sparsityFiveOptimalRangerResults, aes(x=sparsity, group=1)) +
+  geom_line( aes(y=as.double(MSE)/scalingCoef, color = "MSE")) + 
+  geom_line( aes(y=as.double(rsquared), color = "R Squared")) +
+  scale_color_manual(values = colors) +
+  labs(x = "Text Sparsity",color = "Legend")+ theme(legend.position = "bottom") +
+  scale_y_continuous(
+    name = "R Squared",     # Features of the first axis
+    sec.axis = sec_axis(~.*scalingCoef, name="Mean Squared Error"))  # Add a second axis and specify its features
+
+impPlotsSparsityFiveOptimalRanger2
+impPlotsSparsityFiveOptimalRanger3
+impPlotsSparsityFiveOptimalRanger4
+impPlotsSparsityFiveOptimalRanger5
+impPlotsSparsityFiveOptimalRanger6
+impPlotsSparsityFiveOptimalRanger7
+```
+
 
 # Final Model Specification
 ```{r}
+finalRanger <- sparsityFiveOptimalRanger5
+finalRangerImpPlot <- plot(varImp(finalRanger),top = 15)
+finalRangerImpPlot
+
+comparisonResults <- c("Model_Type", "Mean Squared Error", "R Squared")
+comparisonResults <- rbind(comparisonResults,c("Full Model",finalRanger$finalModel$prediction.error,finalRanger$finalModel$r.squared))
 
 ```
 
-
-# Prediction
-## Predicting Gentrification 2019-2021
-Uses the trained model to predict gentrifiaction using the reviews between 2019 and 2021
+# Baseline Model Comparisons
+## Structured Features
 ```{r}
+runtime$structured <- Sys.time()
+
+sparseOptimal <- 5
+mtryOptimal <- 488
+ntreeOptimal <- 500
+structuredData <- tSparseList[[1]][,c(1:9)]
+
+tGrid <- expand.grid(
+                     .mtry = min(mtryOptimal,ncol(structuredData)-1),
+                     .splitrule = "variance",
+                     .min.node.size = 5)
 
 
+rangerStructured <- caret::train(
+                                      x = structuredData[,-1],
+                                      y = structuredData[,1][,1][[1]],
+                                      method = "ranger",
+                                      importance = "impurity",
+                                      tuneGrid = tGrid,
+                                      num.trees = ntreeOptimal)
+
+structuredImpPlot <- plot(varImp(rangerStructured),top = 8, height = 2, width = 5)
+structuredImpPlot
+
+comparisonResults <- rbind(comparisonResults,c("Structured Features",rangerStructured$finalModel$prediction.error, rangerStructured$finalModel$r.squared))
+save(list = c("rangerStructured","structuredImpPlot"),file = "./Data/OtherData/rangerResultsStructured.RData")
+print(paste("Model",ii,"finished and saved at",Sys.time()))
+
+runtime$structured <- Sys.time() - runtime$structured
+```
+
+## Population only features
+```{r}
+runtime$baseline <- Sys.time()
+
+sparseOptimal <- 5
+mtryOptimal <- 488
+ntreeOptimal <- 500
+baselineData <- tSparseList[[1]][,c(1:3)]
+
+tGrid <- expand.grid(
+                     .mtry = min(mtryOptimal,ncol(baselineData)-1),
+                     .splitrule = "variance",
+                     .min.node.size = 5)
+
+
+rangerBaseline <- caret::train(
+                                      x = baselineData[,-1],
+                                      y = baselineData[,1][,1][[1]],
+                                      method = "ranger",
+                                      importance = "impurity",
+                                      tuneGrid = tGrid,
+                                      num.trees = ntreeOptimal)
+
+baselineImpPlot <- plot(varImp(rangerBaseline),top = 2)
+baselineImpPlot
+comparisonResults <- rbind(comparisonResults,c("Baseline Features",rangerBaseline$finalModel$prediction.error, rangerBaseline$finalModel$r.squared))
+
+save(list = c("rangerBaseline","baselineImpPlot"),file = "./Data/OtherData/rangerResultsBaseline.RData")
+print(paste("Model",ii,"finished and saved at",Sys.time()))
+
+runtime$baseline <- Sys.time() - runtime$baseline
+```
+
+
+
+## Graphing Final Model Comparisons
+```{r}
+comparisonResults <- as.data.frame(comparisonResults)
+names(comparisonResults) <- comparisonResults[1,]
+comparisonResults <- comparisonResults[-1,]
+comparisonResultsTall <- gather(comparisonResults, key = Measure, value = Values, -Model_Type)
+comparisonResultsTall$Model_Type <- factor(comparisonResultsTall$Model_Type, levels = c("Full Model","Structured Features","Baseline Features"))
+data
+comparisonResultsTall
+
+ggplot(comparisonResultsTall, aes(fill = Measure,y = as.double(Values), x = Model_Type)) + geom_bar(position = "dodge", stat = "identity") + labs(x = "Model Type", y = "Values", fill = "Legend") + theme(legend.position = "bottom")
+
+comparisonResults$Model_Type <- factor(comparisonResults$Model_Type, levels = c("Full Model","Structured Features","Baseline Features"))
+
+ggplot(comparisonResults, aes(x = Model_Type, fill = Model_Type)) + geom_col(aes(y = as.double(`Mean Squared Error`))) + labs(x = "Model Type", y = "Mean Squared Error", fill= "Legend") + theme(legend.position = "bottom") 
+
+ggplot(comparisonResults, aes(x = Model_Type, fill = Model_Type)) + geom_col(aes(y = as.double(`R Squared`))) + labs(x = "Model Type", y = "R Squared", fill= "Legend") + theme(legend.position = "bottom")
+```
+
+
+# Predictions
+### Pulling Review Data for 2020-2021
+```{r}
+load("./Data/OtherData/Compiled_Thesis_Data.RData")
+predictorReviewData <- review_data %>% filter(!is.na(id)) #removes rows with NA listing IDs. 
+predictorReviewData$date <- as.Date(predictorReviewData$date)
+predictorReviewData <- predictorReviewData %>% filter(date >= as.Date("2019-12-31"))  #only keep reviews after 2019
+
+predictorReviewData <- predictorReviewData %>% subset(select = c(listing_id,comments)) #keep only listing_id and text data
+predictorReviewData <- predictorReviewData %>% group_by(listing_id) %>% mutate(numReviews = n()) #creates a feature for the number of reviews per listing
+predictorReviewData <- aggregate(comments ~ listing_id + numReviews, predictorReviewData, paste, collapse = " ") #combines all text data for a given listing into one row for that listing
+runtime$loadAndFilter <- Sys.time() - runtime$loadAndFilter
+```
+
+
+### Merging Airbnb (Listing Level) and Census Data (Tract Level)
+```{r}
+predictorListingData <- listing_data %>% subset(select = c("id","bedrooms","price","minimum_nights","review_scores_rating",
+                                                             "review_scores_location","tractFIPS2010"))
+
+colnames(predictorListingData)[which(names(predictorListingData) == "price")] <- "listing_price" #renames column titled price to "listing_price". 
+                                                                                 #Prevents error of repeated column name in tSparse
+
+predictorAirbnbData <- inner_join(predictorListingData,predictorReviewData,by = c("id"="listing_id"))
+
+tCensusData <- gentrifiableCensusDataWithDistributionsWide %>% subset(select = c("tractFIPS","NAME.2014","totalPop.2014","popGrowth","gentrificationChange"))
+predictorTractData  <- inner_join(tCensusData,predictorAirbnbData,by = c("tractFIPS"="tractFIPS2010"))
+```
+
+### Aggregating Airbnb Data to Tract Level
+```{r}
+predictorTractReviews <- predictorTractData %>% subset(select = c(tractFIPS,comments))
+predictorTractReviews <- aggregate(comments ~ tractFIPS, predictorTractReviews, paste,collapse = " ")
+
+predictorTractDataNoText <-  predictorTractData %>% subset(select = -c(comments))
+
+predictorTractDataNoText <- predictorTractDataNoText %>% group_by(tractFIPS) %>%
+                                summarise(gentrificationChange = mean(gentrificationChange,na.rm = TRUE),
+                                            totalPop.2014 = mean(totalPop.2014,na.rm = TRUE),
+                                            popGrowth = mean(popGrowth,na.rm = TRUE),
+                                            review_scores_rating = mean(review_scores_rating,na.rm = TRUE),
+                                            review_scores_location = mean(review_scores_location,na.rm = TRUE),
+                                            bedrooms = mean(bedrooms,na.rm = TRUE),
+                                            listing_price = mean(parse_number(listing_price),na.rm = TRUE),
+                                            numListings = n(),
+                                            numReviews = sum(numReviews))
+
+
+predictorTractData <- inner_join(predictorTractDataNoText,predictorTractReviews, by = "tractFIPS")
+runtime$finalCompilation <- Sys.time() - runtime$finalCompilation
+```
+
+
+### Cleaning Text Data
+Removes formatting, stopwords, and stems text. Takes a significant amount of time to run.
+```{r}
+runtime$corpus <- Sys.time()
+corpus <- Corpus(VectorSource(tractData$comments)) 
+corpus <- tm_map(corpus, PlainTextDocument)
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, removeWords, "New") #removing for place names (e.g. New York, New Jersey)
+corpus <- tm_map(corpus, tolower)
+corpus <- tm_map(corpus, removeWords, c("airbnb",stopwords("english"),stopwords("spanish"),locationWords))  #remove stopwords
+corpus <- tm_map(corpus, stemDocument)
+#save(corpus,file = "./Data/OtherData/processed2020_2021Corpus.RData")  #commented out so as to not accidentally overwrite saved data
+runtime$corpus <- Sys.time() - runtime$corpus
+```
+
+### Creating Prediction Text Data
+```{r}
+loadRData <- function(fileName){
+#loads an RData file, and returns it
+    load(fileName)
+    get(ls()[ls() != "fileName"])
+}
+
+predictorCorpus <- loadRData("./Data/OtherData/processed2020_2021Corpus.RData")
+load("./Data/OtherData/processedFullCorpus.RData") #loads 2015-2019 corpus
+sparseOptimal <- 0.8
+sparsePredictor <- 0.999
+```
+
+## Example Code
+```{r}
+library(tm)
+# make corpus for text mining (data comes from package, for reproducibility) 
+data("crude")
+corpus1 <- Corpus(VectorSource(crude[1:10]))    
+# process text (your methods may differ)
+skipWords <- function(x) removeWords(x, stopwords("english"))
+funcs <- list(tolower, removePunctuation, removeNumbers,
+              stripWhitespace, skipWords)
+crude1 <- tm_map(corpus1, FUN = tm_reduce, tmFuns = funcs)
+crude1.dtm <- DocumentTermMatrix(crude1, control = list(wordLengths = c(3,10))) 
+
+corpus2 <- Corpus(VectorSource(crude[15:20]))  
+# process text (your methods may differ)
+skipWords <- function(x) removeWords(x, stopwords("english"))
+funcs <- list(tolower, removePunctuation, removeNumbers,
+              stripWhitespace, skipWords)
+crude2 <- tm_map(corpus2, FUN = tm_reduce, tmFuns = funcs)
+crude2.dtm <- DocumentTermMatrix(crude2, control = list(wordLengths = c(3,10))) 
+
+# convert to matrices for subsetting
+crude1.dtm.mat <- as.matrix(crude1.dtm) # training
+crude2.dtm.mat <- as.matrix(crude2.dtm) # testing
+
+# subset testing data by colnames (ie. terms) or training data
+
+xxCrude <- data.frame(crude2.dtm.mat[,intersect(colnames(crude2.dtm.mat),
+                                           colnames(crude1.dtm.mat))])
+yyCrude <- read.table(textConnection(""), col.names = colnames(crude1.dtm.mat),
+                 colClasses = "integer")
+
+# add incols of NAs for terms absent in the 
+# testing data but present # in the training data
+# following SchaunW's suggestion in the comments above
+detach("package:tidyverse", unload=TRUE)  #removes dplyr package to avoid conflicts with plyr
+library(plyr)
+zzCrude <- rbind.fill(xxCrude, yyCrude)
+library(tidyverse)
+```
+
+## Testing on Our Data
+```{r}
+freq.dtm <- DocumentTermMatrix(corpus, control = list(wordLengths = c(3,10))) 
+pred.dtm <- DocumentTermMatrix(predictorCorpus) 
+freq.dtm <- removeSparseTerms(freq.dtm, sparseOptimal)
+pred.dtm <- removeSparseTerms(pred.dtm, sparsePredictor)
+freq.dtm.mat <- as.matrix(freq.dtm) # training
+pred.dtm.mat <- as.matrix(pred.dtm) # testing
+
+##ADDING IN THIS LINE TO REPLACE THE TRAINING CORPUS WITH WHAT WAS ACUTALLY USED
+freq.dtm.mat <- as.matrix(finalRanger$trainingData)
+##ENDING THE ADDED SECTION
+
+
+xxdtm <- data.frame(pred.dtm.mat[,intersect(colnames(pred.dtm.mat),
+                                           colnames(freq.dtm.mat))])
+yydtm <- read.table(textConnection(""), col.names = colnames(freq.dtm.mat),
+                 colClasses = "integer")
+detach("package:tidyverse", unload=TRUE)  #removes dplyr package to avoid conflicts with plyr
+library(plyr)
+library(tidyverse)
+zzdtm <- rbind.fill(xxdtm, yydtm)
+predictorDataRaw  <- cbind(predictorTractDataNoText,zzdtm)
+```
+
+## Final Predictions
+```{r}
+predictorData <- predictorDataRaw[!is.na(predictorData$bedrooms),]
+predictorData <- predictorData[!is.na(predictorData$gentrificationChange),]
+namesInFinalRanger_NotpredictorData <- setdiff(names(finalRanger$trainingData),names(predictorData))
+namesInpredictorData_NotFinalRanger <- setdiff(names(predictorData),names(finalRanger$trainingData))
+incomplete <- as.data.frame(which(is.na(predictorData), arr.ind=TRUE))
+incompleteCols <- incomplete %>% group_by(col) %>% summarize(n=n())
+incompleteCols <- incompleteCols$col[incompleteCols$col>1000]
+predictorData[,incompleteCols] <- 0  #sets word frequencies to 0 for words which weren't used at all
+predictorData <- predictorData[complete.cases(predictorData),]
+predictorDataFinal <- predictorData[,3:ncol(predictorData)]
+
+####PREDICTION
+finalRangerPredictions <- predict(finalRanger,newdata = predictorDataFinal)
+####END PREDICTION
+
+predictedGentrificationTracts <- cbind(finalRangerPredictions,predictorData) 
+meanDif <- (predictedGentrificationTracts$finalRangerPredictions - predictedGentrificationTracts$gentrificationChange)
+colnames(predictedGentrificationTracts)[which(names(predictedGentrificationTracts) == "gentrificationChange")] <- "gentrificationChange2014_2019"
+save(predictedGentrificationTracts,file = "./Data/OtherData/predictedGentrificationByTract.RData")
 ```
 
 ## Mapping Predicted Gentrification
-```{r}
+```{r, warning=FALSE}
+load("Data/OtherData/predictedGentrificationByTract.RData")
+ii=1
+library(acs)
+tractGeom <- data.frame()
+load("Data/OtherData/Compiled_Thesis_Data.RData")
+load("Data/OtherData/msaMappingData.RData")
+includedStates <- listing_data %>% group_by(nchar(stateAndCountyFIPS2010)) %>% summarize() %>% drop_na()
+includedStates <- listing_data %>% group_by(listing_data$state) %>% summarize() %>% drop_na()
+names(includedStates)<-"state_FIPS"
+
+for (fipsCode in includedStates$state_FIPS) {
+    stateTractGeom <- tracts(state = fipsCode)
+    tractGeom <- rbind(tractGeom,stateTractGeom)
+}
+tractGeom1 <- tractGeom %>% subset(select=c("GEOID","geometry"))
+gentrificationByTract <- predictedGentrificationTracts[,1:3]
+gentrificationByTractGeoms <- geo_join(data_frame = gentrificationByTract, spatial_data = msaMappingData, by_df = "tractFIPS",by_sp = "GEOID")
+
+
+#gentrificationByTractGeoms <- geo_join(data_frame = gentrificationByTract,spatial_data = tractGeom1,by_df = "tractFIPS",by_sp = "GEOID")
+
+
+#mappableGentrificationPrediction <- geo_join(gentrificationByTractGeoms,msaMappingData, by = "GEOID")
+
+predictedGentMaps <- ""
+for (MSA in uniqueMSAs$CBSA.Code) {
+
+  cityCensusData <- filter(gentrificationByTractGeoms,gentrificationByTractGeoms$CBSA.Code.x.2014==MSA)
+  predictedGentMaps[ii] <- plot(cityCensusData["finalRangerPredictions"],
+                                sub = "Predicted Gentrification Change Jan 2020 - Oct 2021",
+                                main=paste(cityCensusData$CBSA.Title.x.2014[1]))
+  ii<-ii+1
+}
+runtime$mapping <- Sys.time() - runtime$mapping
+save(predictedGentMaps)
 
 ```
-
-
-
 
 # Notes
 
@@ -954,4 +1466,14 @@ Predictions
   Can include discussion
 Conclusion
   Model can be extended 
+
+
+```{r}
+impPlotsSparsityFiveOptimalRanger4
+impPlotsSparsityFiveOptimalRanger6
+impPlotsOptimalRanger
+impPlotsOptimalRanger4 
+plot(varImp(sparsityFiveOptimalRanger5),top = 50)
+a <- (varImp(sparsityFiveOptimalRanger5))
+```
 

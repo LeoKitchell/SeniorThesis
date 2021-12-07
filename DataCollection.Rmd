@@ -267,6 +267,9 @@ for (MSA in uniqueMSAs$CBSA.Code) {
   ii<-ii+1
 }
 runtime$mapping <- Sys.time() - runtime$mapping
+
+msaMappingData <- subset(censusDataWithDistributionsWideGeoms, select = c("GEOID","NAME.2014","CBSA.Title.x.2014","CBSA.Code.x.2014"))
+save(msaMappingData,uniqueMSAs,file = "Data/OtherData/msaMappingData.RData")
 ```
 ## Restricting to Gentrifiable Neighborhoods
 Following Ding (2016) we will restrict our analysis to only include neighborhoods which had median household income below the citywide median at the beginning of our period of analysis (2009-2014)
