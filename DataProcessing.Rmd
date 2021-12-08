@@ -6,19 +6,17 @@ output: html_document
 ---
 
 # Purpose
-The code below creates models to predict neighborhood (census tract) level gentrification between 2010-2014 and 2015-2019 using Airbnb data.
+The code below creates models to predict neighborhood (census tract) level gentrification between 2010-2014 and 2015-2019 using Airbnb data. Prediction is then completed using these models, and the output is mapped.
 
 ## Installing Packages & Libraries
 ```{r,warnings = FALSE}
 library(caTools)
 library(SnowballC)
-
 library(randomForest)
 library(glmnet)
 library(tm)
 library(tidyverse)
 ```
-
 
 # Final Compilation of Listing and Review Data
 Data is aggregated at the airbnb listing level. Some final data collection steps are performed here because the data files were too large to push to github
@@ -27,8 +25,7 @@ Data is aggregated at the airbnb listing level. Some final data collection steps
 ```{r}
 runtime <- list()
 runtime$finalCompilation <- Sys.time()
-### Stacking Review Data
-path = "./Data/InsideAirbnbData/Zipped_Data/"
+path = "Data/InsideAirbnbData/Zipped_Data/"
 file_list = list.files(path,'*.csv')
 review_data <- array()
 for (variable in file_list) {
@@ -42,7 +39,7 @@ for (variable in file_list) {
 ```{r}
 runtime$loadAndFilter <- Sys.time()
 ### Prefix "t" added representing they will be used for the text analysis portion. Alternately, "t" for tiny.
-load("./Data/OtherData/Compiled_Thesis_Data.RData")
+load("Data/OtherData/Compiled_Thesis_Data.RData")
 tReviewData <- review_data %>% filter(!is.na(id)) #removes rows with NA listing IDs. 
 tReviewData$date <- as.Date(tReviewData$date)
 tReviewData <- tReviewData %>% filter(date >= as.Date("2015-01-01") & date <= as.Date("2019-12-31"))  #only keep reviews between census collection time period: 2015-2019
@@ -101,7 +98,7 @@ tractDataNoText <- tractDataNoText %>% group_by(tractFIPS) %>%
 
 
 tractData <- inner_join(tractDataNoText,tractReviews, by = "tractFIPS")
-save(tractDataNoText, file = "./Data/OtherData/tractDataNoText.RData")
+save(tractDataNoText, file = "Data/OtherData/tractDataNoText.RData")
 rm(list = setdiff(ls(), c("tractDataNoText","tractData","listing_data", "runtime"))) #cleaning up environment for storage reasons
 runtime$finalCompilation <- Sys.time() - runtime$finalCompilation
 ```
@@ -112,6 +109,7 @@ summary(tractDataNoText[complete.cases(tractDataNoText),])
 lapply(tractDataNoText,sd, na.rm=TRUE)
 ```
 
+# Text Processing
 ## Creating Location Stopwords
 ```{r}
 includedStates <- listing_data %>% group_by(listing_data$state) %>% summarize() %>% drop_na()
@@ -123,7 +121,7 @@ cities <- substr(cities,2,nchar(cities)-4)
 cities <- tolower(cities)
 cities <- c(cities,"angeles","york","diego","francisco","minneapolis")
 
-states <- read.csv("./Data/OtherData/State_Fips_Codes.csv",colClasses = "character")
+states <- read.csv("Data/OtherData/State_Fips_Codes.csv",colClasses = "character")
 states <- inner_join(states,includedStates,by = c("State_FIPS"="state_FIPS"))
 states <- tolower(unlist(states$State_Name))
 locationWords <- c("north","east","south","west","northeast","northwest","southeast","southwest",states, cities)
@@ -131,7 +129,7 @@ locationWords <- c("north","east","south","west","northeast","northwest","southe
 
 ## Cleaning Text Data
 Removes formatting, stopwords, and stems text. Takes approximately 2 hours to run.
-```{r}
+```{r, eval = FALSE}
 runtime$corpus <- Sys.time()
 corpus <- Corpus(VectorSource(tractData$comments)) 
 corpus <- tm_map(corpus, PlainTextDocument)
@@ -140,7 +138,7 @@ corpus <- tm_map(corpus, removeWords, "New") #removing for place names (e.g. New
 corpus <- tm_map(corpus, tolower)
 corpus <- tm_map(corpus, removeWords, c("airbnb",stopwords("english"),stopwords("spanish"),locationWords))  #remove stopwords
 corpus <- tm_map(corpus, stemDocument)
-#save(corpus,file = "./Data/OtherData/processedFullCorpus.RData")  #commented out so as to not accidentally overwrite saved data
+#save(corpus,file = "Data/OtherData/processedFullCorpus.RData")  #commented out so as to not accidentally overwrite saved data
 runtime$corpus <- Sys.time() - runtime$corpus
 ```
 
@@ -150,7 +148,7 @@ Creating training data for models from the processed corpus. Provides a checkpoi
 ```{r}
 library(tm)
 library(tidyverse)
-lapply(c("./Data/OtherData/processedFullCorpus.RData","./Data/OtherData/tractDataNoText.RData"),load,envir=.GlobalEnv) #loads necessary data
+lapply(c("Data/OtherData/processedFullCorpus.RData","Data/OtherData/tractDataNoText.RData"),load,envir=.GlobalEnv) #loads necessary data
 ```
 
 ## Creating Matrices of Word Frequencies
@@ -251,7 +249,7 @@ while (ii < length(tSparseList)+1) {
 
 testData <- list(testSparseList[[1]]$gentrificationChange,testSparseListTFIDF[[1]]$gentrificationChange,
               speedTestSparseList[[1]]$gentrificationChange,speedTestSparseListTFIDF[[1]]$gentrificationChange)
-#save(testData,file = "./Data/OtherData/testData.RData")
+#save(testData,file = "Data/OtherData/testData.RData")
 ```
 # Random Forest Models - Training and Testing
 Trains a variety of random forest models using different parameters and data sets. Small data models can be unstable in multithreaded operations. 
@@ -276,7 +274,7 @@ while (ii <= length(tSparseList)) {
                                       num.trees = 200)
 #      predictLargeRangers[[ii]] <- predict(rangerLargeModels[[ii]],newdata = testSparseList[[ii]])
       impPlotsLargeRanger[[ii]] <- plot(varImp(rangerLargeModels[[ii]]),top = 15)
-      save(list = c("rangerLargeModels","impPlotsLargeRanger","predictLargeRangers"),file = "./Data/OtherData/largeRangerResults.RData")
+      save(list = c("rangerLargeModels","impPlotsLargeRanger","predictLargeRangers"),file = "Data/OtherData/largeRangerResults.RData")
       print(paste("Model",ii,"finished and saved at",Sys.time()))
       ii<-ii+1
 }
@@ -312,7 +310,7 @@ while (ii <= length(tSparseListTFIDF)) {
                                       num.trees = 200)
 #      predictLargeRangersTFIDF[[ii]] <- predict(rangerLargeModelsTFIDF[[ii]],newdata = testSparseListTFIDF[[ii]])
       impPlotsLargeRangerTFIDF[[ii]] <- plot(varImp(rangerLargeModelsTFIDF[[ii]]),top = 15)
-      save(list = c("rangerLargeModelsTFIDF","impPlotsLargeRangerTFIDF","predictLargeRangersTFIDF"),file = "./Data/OtherData/largeRangerResultsTFIDF.RData")
+      save(list = c("rangerLargeModelsTFIDF","impPlotsLargeRangerTFIDF","predictLargeRangersTFIDF"),file = "Data/OtherData/largeRangerResultsTFIDF.RData")
       print(paste("Model",ii,"finished and saved at",Sys.time()))
       ii<-ii+1
 }
@@ -352,7 +350,7 @@ while (ii <= length(trainSparseList)) {
 #      predictLargeRangersStructured[[ii]] <- predict(rangerLargeModelsStructured[[ii]],newdata = testSparseList[[ii]])
       impPlotsLargeRangerStructured[[ii]] <- plot(varImp(rangerLargeModelsStructured[[ii]]),top = 15)
       save(list = c("rangerLargeModelsStructured","impPlotsLargeRangerStructured","predictLargeRangersStructured"),
-           file = "./Data/OtherData/largeRangerResultsStructured.RData")
+           file = "Data/OtherData/largeRangerResultsStructured.RData")
       print(paste("Model",ii,"finished and saved at",Sys.time()))
       ii<-ii+1
 }
@@ -396,7 +394,7 @@ while (ii <= length(trainSparseListTFIDF)) {
  #     predictLargeRangersStructuredTFIDF[[ii]] <- predict(rangerLargeModelsStructuredTFIDF[[ii]],newdata = testSparseListTFIDF[[ii]])
       impPlotsLargeRangerStructuredTFIDF[[ii]] <- plot(varImp(rangerLargeModelsStructuredTFIDF[[ii]]),top = 15)
       save(list = c("rangerLargeModelsStructuredTFIDF","impPlotsLargeRangerStructuredTFIDF","predictLargeRangersStructuredTFIDF"),
-           file = "./Data/OtherData/largeRangerResultsStructuredTFIDF.RData")
+           file = "Data/OtherData/largeRangerResultsStructuredTFIDF.RData")
       print(paste("Model",ii,"finished and saved at",Sys.time()))
       ii<-ii+1
 }
@@ -429,7 +427,7 @@ while (ii <= length(trainSparseList)) {
                                       num.trees = 500)
 #      predictExtraLargeRangers[[ii]] <- predict(rangerExtraLargeModels[[ii]],newdata = testSparseList[[ii]])
       impPlotsExtraLargeRanger[[ii]] <- plot(varImp(rangerExtraLargeModels[[ii]]),top = 15)
-      save(list = c("rangerExtraLargeModels","impPlotsExtraLargeRanger","predictExtraLargeRangers"),file = "./Data/OtherData/extraLargeRangerResults.RData")
+      save(list = c("rangerExtraLargeModels","impPlotsExtraLargeRanger","predictExtraLargeRangers"),file = "Data/OtherData/extraLargeRangerResults.RData")
       print(paste("Model",ii,"finished and saved at",Sys.time()))
       ii<-ii+1
 }
@@ -462,7 +460,7 @@ while (ii <= length(trainSparseListTFIDF)) {
 #      predictExtraLargeRangersTFIDF[[ii]] <- predict(rangerExtraLargeModelsTFIDF[[ii]],newdata = testSparseListTFIDF[[ii]])
       impPlotsExtraLargeRangerTFIDF[[ii]] <- plot(varImp(rangerExtraLargeModelsTFIDF[[ii]]),top = 15)
       save(list = c("rangerExtraLargeModelsTFIDF","impPlotsExtraLargeRangerTFIDF","predictExtraLargeRangersTFIDF","runtime"),
-           file = "./Data/OtherData/extraLargeRangerResultsTFIDF.RData")
+           file = "Data/OtherData/extraLargeRangerResultsTFIDF.RData")
       print(paste("Model",ii,"finished and saved at",Sys.time()))
       ii<-ii+1
 }
@@ -475,7 +473,8 @@ runtime$extraLargeRangersTFIDF <- Sys.time() - runtime$extraLargeRangersTFIDF
 ```
 
 
-## Random Forests - Small Data, Small Model, Bag of Words, Only Structured
+## Small RFs
+### Random Forests - Small Data, Small Model, Bag of Words, Only Structured
 Uses 1% data set and 15 trees
 ```{r, warning=FALSE}
 runtime$smallRangersStructured <- Sys.time()
@@ -497,7 +496,7 @@ while (ii <= length(speedTrainSparseList)) {
 #      predictSmallRangersStructured[[ii]] <- predict(rangerSmallModels[[ii]],newdata = speedTestSparseListStructured[[ii]])
       impPlotsSmallRangerStructured[[ii]] <- plot(varImp(rangerSmallModelsStructured[[ii]]),top = 15)
       save(list = c("rangerSmallModelsStructured","impPlotsSmallRangerStructured","predictSmallRangersStructured"),
-           file = "./Data/OtherData/smallRangerResultsStructured.RData")
+           file = "Data/OtherData/smallRangerResultsStructured.RData")
       print(paste("Model",ii,"finished and saved at",Sys.time()))
       ii<-ii+1
 }
@@ -510,7 +509,7 @@ while (ii <= length(rangerSmallModelsStructured)) {
 runtime$smallRangersStructured <- Sys.time() - runtime$smallRangersStructured
 ```
 
-## Random Forests - Small Data, Small Model, TF IDF
+### Random Forests - Small Data, Small Model, TF IDF
 Uses 1% data set and 15 trees
 ```{r}
 runtime$smallRangersTFIDF <- Sys.time()
@@ -532,7 +531,7 @@ while (ii <= length(speedTrainSparseListTFIDF)) {
 }
 
 
-save(list = c("rangerSmallModelsTFIDF","impPlotsSmallRangerTFIDF","predictSmallRangersTFIDF"),file = "./Data/OtherData/smallRangerResultsTFIDF.RData")
+save(list = c("rangerSmallModelsTFIDF","impPlotsSmallRangerTFIDF","predictSmallRangersTFIDF"),file = "Data/OtherData/smallRangerResultsTFIDF.RData")
 
 ii<-1
 while (ii < 7) {
@@ -604,16 +603,16 @@ print(Sys.time())
 
 
 # Final Model Selection
-
-## Loading Trained Model Data and Libraries as Checkpoint
+## Data Processing
+### Loading Trained Model Data and Libraries as Checkpoint
 ```{r}
 library(ranger)
 library(tidyverse)
-results <- c(list.files("./Data/OtherData/","*RangerResults.RData"),list.files("./Data/OtherData/","*RangerResultsTFIDF.RData"))
-lapply(X = paste("./Data/OtherData/",results,sep=""),FUN = load,envir=.GlobalEnv,) #loads models
+results <- c(list.files("Data/OtherData/","*RangerResults.RData"),list.files("Data/OtherData/","*RangerResultsTFIDF.RData"))
+lapply(X = paste("Data/OtherData/",results,sep=""),FUN = load,envir=.GlobalEnv,) #loads models
 ```
 
-## Creating Data Frame of Large Model Results
+### Creating Data Frame of Large Model Results
 ```{r}
 eightLevelSparsity <- c(.4,.5,.6,.7,.8,.9,.95,.99)
 
@@ -692,7 +691,8 @@ tunedExtraLargeRanger <- tuneMtryFast( gentrificationChange ~ .,
                                        trace = TRUE)
 ```
 
-## Training Candidate Final Models - Mtry of 913
+## Candidate Models - Training
+### Training Candidate Final Models - Mtry of 913
 ```{r}
 runtime <- list()
 mtryOptimal <- 913
@@ -711,7 +711,7 @@ optimalRanger <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
                               num.trees = ntreeOptimal,
                               tuneGrid = tGrid)
 impPlotsOptimalRanger <- plot(varImp(optimalRanger),top = 15)
-save(list = c("optimalRanger","impPlotsOptimalRanger"),file = "./Data/OtherData/optimalRangerResults.RData")
+save(list = c("optimalRanger","impPlotsOptimalRanger"),file = "Data/OtherData/optimalRangerResults.RData")
 print(paste("Model finished and saved at",Sys.time()))
 runtime$optimalRanger1 <- Sys.time() - runtime$optimalRanger1
 
@@ -725,7 +725,7 @@ optimalRanger2 <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
                               num.trees = ntreeOptimal,
                               tuneGrid = tGrid)
 impPlotsOptimalRanger2 <- plot(varImp(optimalRanger2),top = 15)
-save(list = c("optimalRanger2","impPlotsOptimalRanger2"),file = "./Data/OtherData/optimalRangerResults2.RData")
+save(list = c("optimalRanger2","impPlotsOptimalRanger2"),file = "Data/OtherData/optimalRangerResults2.RData")
 print(paste("Model finished and saved at",Sys.time()))
 runtime$optimalRanger2 <- Sys.time() - runtime$optimalRanger2
 
@@ -739,7 +739,7 @@ optimalRanger3 <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
                               num.trees = ntreeOptimal,
                               tuneGrid = tGrid)
 impPlotsOptimalRanger3 <- plot(varImp(optimalRanger3),top = 15)
-save(list = c("optimalRanger3","impPlotsOptimalRanger3"),file = "./Data/OtherData/optimalRangerResults3.RData")
+save(list = c("optimalRanger3","impPlotsOptimalRanger3"),file = "Data/OtherData/optimalRangerResults3.RData")
 print(paste("Model finished and saved at",Sys.time()))
 runtime$optimalRanger3 <- Sys.time() - runtime$optimalRanger3
 
@@ -752,7 +752,7 @@ optimalRanger4 <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
                               num.trees = ntreeOptimal,
                               tuneGrid = tGrid)
 impPlotsOptimalRanger4 <- plot(varImp(optimalRanger4),top = 15)
-save(list = c("optimalRanger4","impPlotsOptimalRanger4"),file = "./Data/OtherData/optimalRangerResults4.RData")
+save(list = c("optimalRanger4","impPlotsOptimalRanger4"),file = "Data/OtherData/optimalRangerResults4.RData")
 print(paste("Model finished and saved at",Sys.time()))
 runtime$optimalRanger4 <- Sys.time() - runtime$optimalRanger4
 
@@ -765,7 +765,7 @@ optimalRanger5 <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
                               num.trees = ntreeOptimal,
                               tuneGrid = tGrid)
 impPlotsOptimalRanger5 <- plot(varImp(optimalRanger5),top = 15)
-save(list = c("optimalRanger5","impPlotsOptimalRanger5"),file = "./Data/OtherData/optimalRangerResults5.RData")
+save(list = c("optimalRanger5","impPlotsOptimalRanger5"),file = "Data/OtherData/optimalRangerResults5.RData")
 print(paste("Model finished and saved at",Sys.time()))
 runtime$optimalRanger5 <- Sys.time() - runtime$optimalRanger5
 
@@ -778,13 +778,13 @@ optimalRanger6 <- caret::train(x = tSparseList[[sparseOptimal]][,-1],
                               num.trees = ntreeOptimal,
                               tuneGrid = tGrid)
 impPlotsOptimalRanger6 <- plot(varImp(optimalRanger6),top = 15)
-save(list = c("optimalRanger6","impPlotsOptimalRanger6"),file = "./Data/OtherData/optimalRangerResults6.RData")
+save(list = c("optimalRanger6","impPlotsOptimalRanger6"),file = "Data/OtherData/optimalRangerResults6.RData")
 print(paste("Model finished and saved at",Sys.time()))
 runtime$optimalRanger6 <- Sys.time() - runtime$optimalRanger6
 
 ```
 
-## Training Candidate Final Models - Mtry of 488
+### Training Candidate Final Models - Mtry of 488
 ```{r}
 mtryOptimal <- 488
 ntreeOptimal <- 500
@@ -802,7 +802,7 @@ sparsityFiveOptimalRanger2 <- caret::train(x = tSparseList[[sparseOptimal]][,-1]
                               num.trees = ntreeOptimal,
                               tuneGrid = tGrid)
 impPlotsSparsityFiveOptimalRanger2 <- plot(varImp(sparsityFiveOptimalRanger2),top = 15)
-save(list = c("sparsityFiveOptimalRanger2","impPlotsSparsityFiveOptimalRanger2"),file = "./Data/OtherData/sparsityFiveOptimalRanger2.RData")
+save(list = c("sparsityFiveOptimalRanger2","impPlotsSparsityFiveOptimalRanger2"),file = "Data/OtherData/sparsityFiveOptimalRanger2.RData")
 print(paste("Model finished and saved at",Sys.time()))
 runtime$sparsityFiveOptimalRanger2 <- Sys.time() - runtime$sparsityFiveOptimalRanger2
 
@@ -815,7 +815,7 @@ sparsityFiveOptimalRanger3 <- caret::train(x = tSparseList[[sparseOptimal]][,-1]
                               num.trees = ntreeOptimal,
                               tuneGrid = tGrid)
 impPlotsSparsityFiveOptimalRanger3 <- plot(varImp(sparsityFiveOptimalRanger3),top = 15)
-save(list = c("sparsityFiveOptimalRanger3","impPlotsSparsityFiveOptimalRanger3"),file = "./Data/OtherData/sparsityFiveOptimalRanger3.RData")
+save(list = c("sparsityFiveOptimalRanger3","impPlotsSparsityFiveOptimalRanger3"),file = "Data/OtherData/sparsityFiveOptimalRanger3.RData")
 print(paste("Model finished and saved at",Sys.time()))
 runtime$sparsityFiveOptimalRanger3 <- Sys.time() - runtime$sparsityFiveOptimalRanger3
 
@@ -828,7 +828,7 @@ sparsityFiveOptimalRanger4 <- caret::train(x = tSparseList[[sparseOptimal]][,-1]
                               num.trees = ntreeOptimal,
                               tuneGrid = tGrid)
 impPlotsSparsityFiveOptimalRanger4 <- plot(varImp(sparsityFiveOptimalRanger4),top = 15)
-save(list = c("sparsityFiveOptimalRanger4","impPlotsSparsityFiveOptimalRanger4"),file = "./Data/OtherData/sparsityFiveOptimalRanger4.RData")
+save(list = c("sparsityFiveOptimalRanger4","impPlotsSparsityFiveOptimalRanger4"),file = "Data/OtherData/sparsityFiveOptimalRanger4.RData")
 print(paste("Model finished and saved at",Sys.time()))
 runtime$sparsityFiveOptimalRanger4 <- Sys.time() - runtime$sparsityFiveOptimalRanger4
 
@@ -841,7 +841,7 @@ sparsityFiveOptimalRanger5 <- caret::train(x = tSparseList[[sparseOptimal]][,-1]
                               num.trees = ntreeOptimal,
                               tuneGrid = tGrid)
 impPlotsSparsityFiveOptimalRanger5 <- plot(varImp(sparsityFiveOptimalRanger5),top = 15)
-save(list = c("sparsityFiveOptimalRanger5","impPlotsSparsityFiveOptimalRanger5"),file = "./Data/OtherData/sparsityFiveOptimalRanger5.RData")
+save(list = c("sparsityFiveOptimalRanger5","impPlotsSparsityFiveOptimalRanger5"),file = "Data/OtherData/sparsityFiveOptimalRanger5.RData")
 print(paste("Model finished and saved at",Sys.time()))
 runtime$sparsityFiveOptimalRanger5 <- Sys.time() - runtime$sparsityFiveOptimalRanger5
 
@@ -854,7 +854,7 @@ sparsityFiveOptimalRanger6 <- caret::train(x = tSparseList[[sparseOptimal]][,-1]
                               num.trees = ntreeOptimal,
                               tuneGrid = tGrid)
 impPlotsSparsityFiveOptimalRanger6 <- plot(varImp(sparsityFiveOptimalRanger6),top = 15)
-save(list = c("sparsityFiveOptimalRanger6","impPlotsSparsityFiveOptimalRanger6"),file = "./Data/OtherData/sparsityFiveOptimalRanger6.RData")
+save(list = c("sparsityFiveOptimalRanger6","impPlotsSparsityFiveOptimalRanger6"),file = "Data/OtherData/sparsityFiveOptimalRanger6.RData")
 print(paste("Model finished and saved at",Sys.time()))
 runtime$sparsityFiveOptimalRanger6 <- Sys.time() - runtime$sparsityFiveOptimalRanger6
 
@@ -867,7 +867,7 @@ sparsityFiveOptimalRanger7 <- caret::train(x = tSparseList[[sparseOptimal]][,-1]
                               num.trees = ntreeOptimal,
                               tuneGrid = tGrid)
 impPlotsSparsityFiveOptimalRanger7 <- plot(varImp(sparsityFiveOptimalRanger7),top = 15)
-save(list = c("sparsityFiveOptimalRanger7","impPlotsSparsityFiveOptimalRanger7"),file = "./Data/OtherData/sparsityFiveOptimalRanger7.RData")
+save(list = c("sparsityFiveOptimalRanger7","impPlotsSparsityFiveOptimalRanger7"),file = "Data/OtherData/sparsityFiveOptimalRanger7.RData")
 print(paste("Model finished and saved at",Sys.time()))
 runtime$sparsityFiveOptimalRanger7 <- Sys.time() - runtime$sparsityFiveOptimalRanger7
 
@@ -880,15 +880,16 @@ sparsityFiveOptimalRanger8 <- caret::train(x = tSparseList[[sparseOptimal]][,-1]
                               num.trees = ntreeOptimal,
                               tuneGrid = tGrid)
 impPlotsSparsityFiveOptimalRanger8 <- plot(varImp(sparsityFiveOptimalRanger8),top = 15)
-save(list = c("sparsityFiveOptimalRanger8","impPlotsSparsityFiveOptimalRanger8"),file = "./Data/OtherData/sparsityFiveOptimalRanger8.RData")
+save(list = c("sparsityFiveOptimalRanger8","impPlotsSparsityFiveOptimalRanger8"),file = "Data/OtherData/sparsityFiveOptimalRanger8.RData")
 print(paste("Model finished and saved at",Sys.time()))
 runtime$sparsityFiveOptimalRanger8 <- Sys.time() - runtime$sparsityFiveOptimalRanger8
 ```
 
-## Combining Results of Candidate Final Models - Mtry of 913
+## Candidate Models - Results
+### Combining Results of Candidate Final Models - Mtry of 913
 ```{r}
-results <- c(list.files("./Data/OtherData/","optimalRangerResults*"))
-lapply(X = paste("./Data/OtherData/",results,sep=""),FUN = load,envir=.GlobalEnv,)  #loads models
+results <- c(list.files("Data/OtherData/","optimalRangerResults*"))
+lapply(X = paste("Data/OtherData/",results,sep=""),FUN = load,envir=.GlobalEnv,)  #loads models
 
 optimalRangerResults <- data.frame(matrix(ncol = 8,nrow = 1))
 colnames(optimalRangerResults) <- c("modelType","trainDataSize","sparsity","rsquared","MSE","NumTrees","mTry","minNodeSize")
@@ -951,7 +952,7 @@ optimalRangerResults$modelName <- paste(optimalRangerResults$modelType,optimalRa
 ```
 
 
-## Comparing Candidate Final Models - Mtry of 913
+### Comparing Candidate Final Models - Mtry of 913
 ```{r}
 scalingCoef <- .065
 colors <- c("R Squared" = "red", "MSE" = "blue")
@@ -975,10 +976,10 @@ impPlotsOptimalRanger7
 ```
 
 
-## Combining Results of Candidate Final Models - Mtry of 488
+### Combining Results of Candidate Final Models - Mtry of 488
 ```{r}
-results <- c(list.files("./Data/OtherData/","sparsityFive*"))
-lapply(X = paste("./Data/OtherData/",results,sep=""),FUN = load,envir=.GlobalEnv,)  #loads models
+results <- c(list.files("Data/OtherData/","sparsityFive*"))
+lapply(X = paste("Data/OtherData/",results,sep=""),FUN = load,envir=.GlobalEnv,)  #loads models
 eightLevelSparsity <- c(.4,.5,.6,.7,.8,.9,.95,.99)
 
 sparsityFiveOptimalRangerResults <- data.frame(matrix(ncol = 8,nrow = 1))
@@ -1042,7 +1043,7 @@ sparsityFiveOptimalRangerResults <- sparsityFiveOptimalRangerResults[2:nrow(spar
 sparsityFiveOptimalRangerResults$modelName <- paste(sparsityFiveOptimalRangerResults$modelType,sparsityFiveOptimalRangerResults$NumTrees,sep="; nTrees: ")
 ```
 
-## Comparing Candidate Final Models - Mtry of 488
+### Comparing Candidate Final Models - Mtry of 488
 ```{r}
 scalingCoef <- .067
 colors <- c("R Squared" = "red", "MSE" = "blue")
@@ -1068,16 +1069,16 @@ impPlotsSparsityFiveOptimalRanger7
 # Final Model Specification
 ```{r}
 finalRanger <- sparsityFiveOptimalRanger5
+save(finalRanger,file = "Full_Trained_Model.RData")
 finalRangerImpPlot <- plot(varImp(finalRanger),top = 15)
-finalRangerImpPlot
 
 comparisonResults <- c("Model_Type", "Mean Squared Error", "R Squared")
 comparisonResults <- rbind(comparisonResults,c("Full Model",finalRanger$finalModel$prediction.error,finalRanger$finalModel$r.squared))
 
 ```
 
-# Baseline Model Comparisons
-## Structured Features
+# Model Comparisons
+## Structured Features Model
 ```{r}
 runtime$structured <- Sys.time()
 
@@ -1104,13 +1105,13 @@ structuredImpPlot <- plot(varImp(rangerStructured),top = 8, height = 2, width = 
 structuredImpPlot
 
 comparisonResults <- rbind(comparisonResults,c("Structured Features",rangerStructured$finalModel$prediction.error, rangerStructured$finalModel$r.squared))
-save(list = c("rangerStructured","structuredImpPlot"),file = "./Data/OtherData/rangerResultsStructured.RData")
+save(list = c("rangerStructured","structuredImpPlot"),file = "Data/OtherData/rangerResultsStructured.RData")
 print(paste("Model",ii,"finished and saved at",Sys.time()))
 
 runtime$structured <- Sys.time() - runtime$structured
 ```
 
-## Population only features
+## Baseline Model
 ```{r}
 runtime$baseline <- Sys.time()
 
@@ -1137,7 +1138,7 @@ baselineImpPlot <- plot(varImp(rangerBaseline),top = 2)
 baselineImpPlot
 comparisonResults <- rbind(comparisonResults,c("Baseline Features",rangerBaseline$finalModel$prediction.error, rangerBaseline$finalModel$r.squared))
 
-save(list = c("rangerBaseline","baselineImpPlot"),file = "./Data/OtherData/rangerResultsBaseline.RData")
+save(list = c("rangerBaseline","baselineImpPlot"),file = "Data/OtherData/rangerResultsBaseline.RData")
 print(paste("Model",ii,"finished and saved at",Sys.time()))
 
 runtime$baseline <- Sys.time() - runtime$baseline
@@ -1166,9 +1167,10 @@ ggplot(comparisonResults, aes(x = Model_Type, fill = Model_Type)) + geom_col(aes
 
 
 # Predictions
+## Data Processing
 ### Pulling Review Data for 2020-2021
 ```{r}
-load("./Data/OtherData/Compiled_Thesis_Data.RData")
+load("Data/OtherData/Compiled_Thesis_Data.RData")
 predictorReviewData <- review_data %>% filter(!is.na(id)) #removes rows with NA listing IDs. 
 predictorReviewData$date <- as.Date(predictorReviewData$date)
 predictorReviewData <- predictorReviewData %>% filter(date >= as.Date("2019-12-31"))  #only keep reviews after 2019
@@ -1229,7 +1231,7 @@ corpus <- tm_map(corpus, removeWords, "New") #removing for place names (e.g. New
 corpus <- tm_map(corpus, tolower)
 corpus <- tm_map(corpus, removeWords, c("airbnb",stopwords("english"),stopwords("spanish"),locationWords))  #remove stopwords
 corpus <- tm_map(corpus, stemDocument)
-#save(corpus,file = "./Data/OtherData/processed2020_2021Corpus.RData")  #commented out so as to not accidentally overwrite saved data
+#save(corpus,file = "Data/OtherData/processed2020_2021Corpus.RData")  #commented out so as to not accidentally overwrite saved data
 runtime$corpus <- Sys.time() - runtime$corpus
 ```
 
@@ -1241,55 +1243,12 @@ loadRData <- function(fileName){
     get(ls()[ls() != "fileName"])
 }
 
-predictorCorpus <- loadRData("./Data/OtherData/processed2020_2021Corpus.RData")
-load("./Data/OtherData/processedFullCorpus.RData") #loads 2015-2019 corpus
+predictorCorpus <- loadRData("Data/OtherData/processed2020_2021Corpus.RData")
+load("Data/OtherData/processedFullCorpus.RData") #loads 2015-2019 corpus
 sparseOptimal <- 0.8
 sparsePredictor <- 0.999
-```
 
-## Example Code
-```{r}
 library(tm)
-# make corpus for text mining (data comes from package, for reproducibility) 
-data("crude")
-corpus1 <- Corpus(VectorSource(crude[1:10]))    
-# process text (your methods may differ)
-skipWords <- function(x) removeWords(x, stopwords("english"))
-funcs <- list(tolower, removePunctuation, removeNumbers,
-              stripWhitespace, skipWords)
-crude1 <- tm_map(corpus1, FUN = tm_reduce, tmFuns = funcs)
-crude1.dtm <- DocumentTermMatrix(crude1, control = list(wordLengths = c(3,10))) 
-
-corpus2 <- Corpus(VectorSource(crude[15:20]))  
-# process text (your methods may differ)
-skipWords <- function(x) removeWords(x, stopwords("english"))
-funcs <- list(tolower, removePunctuation, removeNumbers,
-              stripWhitespace, skipWords)
-crude2 <- tm_map(corpus2, FUN = tm_reduce, tmFuns = funcs)
-crude2.dtm <- DocumentTermMatrix(crude2, control = list(wordLengths = c(3,10))) 
-
-# convert to matrices for subsetting
-crude1.dtm.mat <- as.matrix(crude1.dtm) # training
-crude2.dtm.mat <- as.matrix(crude2.dtm) # testing
-
-# subset testing data by colnames (ie. terms) or training data
-
-xxCrude <- data.frame(crude2.dtm.mat[,intersect(colnames(crude2.dtm.mat),
-                                           colnames(crude1.dtm.mat))])
-yyCrude <- read.table(textConnection(""), col.names = colnames(crude1.dtm.mat),
-                 colClasses = "integer")
-
-# add incols of NAs for terms absent in the 
-# testing data but present # in the training data
-# following SchaunW's suggestion in the comments above
-detach("package:tidyverse", unload=TRUE)  #removes dplyr package to avoid conflicts with plyr
-library(plyr)
-zzCrude <- rbind.fill(xxCrude, yyCrude)
-library(tidyverse)
-```
-
-## Testing on Our Data
-```{r}
 freq.dtm <- DocumentTermMatrix(corpus, control = list(wordLengths = c(3,10))) 
 pred.dtm <- DocumentTermMatrix(predictorCorpus) 
 freq.dtm <- removeSparseTerms(freq.dtm, sparseOptimal)
@@ -1300,7 +1259,6 @@ pred.dtm.mat <- as.matrix(pred.dtm) # testing
 ##ADDING IN THIS LINE TO REPLACE THE TRAINING CORPUS WITH WHAT WAS ACUTALLY USED
 freq.dtm.mat <- as.matrix(finalRanger$trainingData)
 ##ENDING THE ADDED SECTION
-
 
 xxdtm <- data.frame(pred.dtm.mat[,intersect(colnames(pred.dtm.mat),
                                            colnames(freq.dtm.mat))])
@@ -1333,7 +1291,7 @@ finalRangerPredictions <- predict(finalRanger,newdata = predictorDataFinal)
 predictedGentrificationTracts <- cbind(finalRangerPredictions,predictorData) 
 meanDif <- (predictedGentrificationTracts$finalRangerPredictions - predictedGentrificationTracts$gentrificationChange)
 colnames(predictedGentrificationTracts)[which(names(predictedGentrificationTracts) == "gentrificationChange")] <- "gentrificationChange2014_2019"
-save(predictedGentrificationTracts,file = "./Data/OtherData/predictedGentrificationByTract.RData")
+save(predictedGentrificationTracts,file = "Data/OtherData/predictedGentrificationByTract.RData")
 ```
 
 ## Mapping Predicted Gentrification
@@ -1375,105 +1333,3 @@ runtime$mapping <- Sys.time() - runtime$mapping
 save(predictedGentMaps)
 
 ```
-
-# Notes
-
-```{r}
-#When I run my conversion I'll have a mapping from one airbnb to a block. I'll have two observations, one in 2010 block and one in 2000 block. That #way I know which 2000 and 2010 tracts its in. 
-#Condition on all the observations that have no change in the tract from 2000 to 2010.
-
-#Order of Operations
-#Code the maplinks from lat and longitude to blocks and tracts
-#Pin down gentrification metric
-#Pin down explanatory variables
-  #Controls: population growth. Avg airbnb rating. Location rating on airbnb. 
-  # Run a specification with fixed effects and not
-  # A decision tree will rank which variables are most important
-
-#TFIDF? Term frequency inverse document frequency. R should have built in function. It normalizes word frequency. 
-#Monday Nov 15th send a rought draft to Gelman. 
-```
-
-Look into TFIDF
-
-Will need to create a table with summary statistics of all variables except words
-  Number of observations
-  Mean
-  Min 
-  Max
-  Median
-
-Histogram of Gentrification
-Map as an example showing the distribution
-
-Table 6 from Jain but with theg eneral model.
-It would be nice to do one for each of the cities, but maybe like 2 example cities. Imaigining a table 6 with the overall and with the Seattle and San Fracisisco
-    
-
-Look at Jain Paper for controls
-  
-Naive Bayes as a stretch goal??
-
-  
-What data frame do I need to run this model:
-    Multiple objects. 
-      Gentrification Variable
-        Column with a row for each tract. Can be in the same data frame as the non word x variable.
-      Non word X Variables
-        Data frame with a row each tract. 
-      
-      Matrix which have a column for each word used in any review in any of the 28 MSAs
-        Each row will be a census tract. The value of each cell will either be a quantifier for how many times the word shows up, or it could be a 1 or 0 for whether it shows up.
-
-
-
-# Thesis Writing & Stucture Details
-## Thesis Formatting
-Footnotes not endnotes.
-Word, probably not latex
-references are (Jain 2021).
-In line images, not at the end.
-Table of summary stats? Package in R that saves table to a .doc file and then I can import that in to a word document.
-
-## Thesis Layout
-Intro
-  Talks about motivation
-  Preview of results
-Literature Review
-  General quantitve gentrification papers
-  Jain paper
-    The most related paper to mine is this Jain paper. Highlight what I've contributed beyond this paper.
-        Generalizing to a larger sample of cities
-        Letting the model decide important words rather than pre-processing
-Data
-  Describe census data and the airbnb data
-  Describe gentrification index
-  Gentrification maps
-  Summary statistics of variables
-Specification
-  Used random forest
-    Footnotes can say that I used ranger
-  Optimal Parameter Values
-  Say that I used Bag of Words 
-  We also tried TF IDF and regularized linear regressions
-  Did optimization and used MSE as the criteria to select the best model. From here on out only talk about the best Model.
-Results
-  Importance Factors Ranking of Features
-  
-Predictions
-  Using data from Jan 2020-Present we predict gentrification to be highest in these areas. Potentially map of areas. 
-  
-  Can include discussion
-Conclusion
-  Model can be extended 
-
-
-```{r}
-impPlotsSparsityFiveOptimalRanger4
-impPlotsSparsityFiveOptimalRanger6
-impPlotsOptimalRanger
-impPlotsOptimalRanger4 
-plot(varImp(sparsityFiveOptimalRanger5),top = 50)
-a <- (varImp(sparsityFiveOptimalRanger5))
-```
-

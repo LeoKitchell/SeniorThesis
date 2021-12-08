@@ -48,7 +48,7 @@ Data has been downloaded from InsideAirbnb for 28 US cities. These data are comp
 
 ## Stacking Data
 Using rbind to stack airbnb data from each filetype (Listings, Calendar, and Reviews) into three dataframes.
-```{r, cache=TRUE}
+```{r}
 runtime$stackingData <- Sys.time()
 path <- "./Data/InsideAirbnbData/Zipped_Data/"
 file_list = list.files(path,'*.csv')
@@ -69,11 +69,11 @@ runtime$stackingData <- Sys.time()- runtime$stackingData
 Mapping latitude to blocks and tracts. Predicted to take ~200 minutes per vintage. 
 ```{r, cache=TRUE, eval=FALSE}
 runtime$geocodingAirbnbs <- Sys.time()
-#listing_data$fullFIPS2000<- "" #creating empty columns to be populated by the loop below
-#listing_data$tractFIPS2000 <- ""
-#listing_data$fullFIPS2010<- ""
-#listing_data$tractFIPS2010 <- ""
-#vintage <- c(2000,2010)
+listing_data$fullFIPS2000<- "" #creating empty columns to be populated by the loop below
+listing_data$tractFIPS2000 <- ""
+listing_data$fullFIPS2010<- ""
+listing_data$tractFIPS2010 <- ""
+vintage <- c(2000,2010)
 
 #for (year in vintage) {
   for (listing in 1:nrow(listing_data)) {
@@ -115,7 +115,7 @@ listing_data <- read.csv(file = "./Data/OtherData/listing_data_11_29.csv.gz",col
 # Gentrification Data
 
 ## Specification
-The specification of gentrification which will be used in this project is heavily inspired by the work of Freeman (2005) and Bates (2013). To compose our gentrification measure we will use Census tract level data on median household income, educational attainment, and percentage of income spent on rent. **The rent measure may have to be changed to dollar amount spent on rent so that we don't get confonding from increased household income in the tract** 
+The specification of gentrification which will be used in this project is heavily inspired by the work of Freeman (2005) and Bates (2013). To compose our gentrification measure we will use Census tract level data on median household income, educational attainment, and median rent cost.
 
 ## Census Variables
 These variables will be used to determine the gentrification in a given neighborhood.
@@ -125,12 +125,12 @@ Descriptions and codes of variables available in the ACS 5 year dataset located 
 locationName <- "NAME"    #Census geography name
 totalPop <- "B01003_001E" #Census table for total population
 
-#Education Variables
+#Education Variables.
   educationPop <- "B15003_001E" #Number of respondents 25 Years and Over who responded to education portion of survey
-  bachelorsPop <- "B15003_022E" #Number of respondents 25 Years and Over with a bachelors degree
-  mastersPop <-   "B15003_023E" #Number of respondents 25 Years and Over with a masters degree
-  professionalPop <-"B15003_024E" #Number of respondents 25 Years and Over with a professional degree
-  doctoratePop <-"B15003_025E" #Number of respondents 25 Years and Over with a doctorate degree
+  bachelorsPop <- "B15003_022E" #Number of respondents 25 Years and Over with a bachelors degree as their highest level of education
+  mastersPop <-   "B15003_023E" #Number of respondents 25 Years and Over with a masters degree as their highest level of education
+  professionalPop <-"B15003_024E" #Number of respondents 25 Years and Over with a professional degree as their highest level of education
+  doctoratePop <-"B15003_025E" #Number of respondents 25 Years and Over with a doctorate degree as their highest level of education
   
 #Gentrification Variables
 medHHInc <- "B19013_001E" #Median household income in inflation adjusted dollars of VINTAGE year (e.g. 2014, 2019).
@@ -138,20 +138,13 @@ medGrossRent <- "B25064_001E" #Median Gross Rent (Dollars)
 educationVars <- c(educationPop,bachelorsPop,mastersPop,professionalPop,doctoratePop)
 
 censusVars <- c(locationName,totalPop,medHHInc,medGrossRent,educationVars)
-
-#Other Variables Considered
-  #rentGrossAsPctInc <- "B25070_001E" #Gross Rent As A Percentage Of Household Income In The Past 12 Months
-  #medRentAsPctInc <- "B25071_001E" #	Median Gross Rent As A Percentage Of Household Income In The Past 12 Months (Dollars)
-  #rawRent <-"B25056_001E" #Contract Rent
 ```
 
 ### Setup Census API key to pull data.
 ```{r}
 # Add key to .Renviron
-key = "be936e1698dd7dfd657546a6a7088c6306f4e54f"
-Sys.setenv(CENSUS_KEY= key)
-# Reload .Renviron
-readRenviron("~/.Renviron")
+key = "be936e1698dd7dfd657546a6a7088c6306f4e54f"  #Personalized key should be created for new users. 
+Sys.setenv(CENSUS_KEY = key)
 # Check to see that the expected key is output in your R console
 Sys.getenv("CENSUS_KEY")
 ```
@@ -173,7 +166,7 @@ censusDataRaw <- data.frame()
 for (year in vintage) {
   for (fipsCode in includedStates$state_FIPS) {
     state = paste("state:",fipsCode,"+county:*",sep = "")
-    print(paste("Now pulling census data for Geography:",state," from vintage:",year))
+    #print(paste("Now pulling census data for Geography:",state," from vintage:",year))
     stateData <- getCensus(name = nameACS,vintage = year, vars = censusVars, regionin = state, region = region)
     stateData$vintage <- year
     censusDataRaw <- rbind(censusDataRaw,stateData)
@@ -232,11 +225,8 @@ runtime$creatingGentrificationVariables <- Sys.time() - runtime$creatingGentrifi
 ```{r}
 # calculate average index
 censusDataWithDistributions <- censusDataWithDistributions %>% mutate(gentrificationIndex = (pctilemedHHInc + pctilemedGrossRent + pctileBachelorsOrHigher)/3)
-hist(censusDataWithDistributions$gentrificationIndex)
-
 censusDataWithDistributionsWide <- reshape(censusDataWithDistributions, idvar = "tractFIPS", timevar = "vintage", direction = "wide")
 censusDataWithDistributionsWide <- censusDataWithDistributionsWide %>% mutate(gentrificationChange = gentrificationIndex.2019 - gentrificationIndex.2014)
-
 ```
 
 ### Calculating Population Growth by Tract
@@ -245,7 +235,7 @@ censusDataWithDistributionsWide <- censusDataWithDistributionsWide %>% mutate(po
 ```
 
 ### Pulling Geometries to Map
-```{r,results='hide'}
+```{r,results='hide', warning=FALSE}
 runtime$mapping <- Sys.time()
 tractGeom <- data.frame()
  for (fipsCode in includedStates$state_FIPS) {
@@ -268,7 +258,7 @@ for (MSA in uniqueMSAs$CBSA.Code) {
 }
 runtime$mapping <- Sys.time() - runtime$mapping
 
-msaMappingData <- subset(censusDataWithDistributionsWideGeoms, select = c("GEOID","NAME.2014","CBSA.Title.x.2014","CBSA.Code.x.2014"))
+msaMappingData <- subset(censusDataWithDistributionsWideGeoms, select = c("GEOID","NAME.2014","CBSA.Title.2014","CBSA.Code.2014"))
 save(msaMappingData,uniqueMSAs,file = "Data/OtherData/msaMappingData.RData")
 ```
 ## Restricting to Gentrifiable Neighborhoods
@@ -292,7 +282,6 @@ for (MSA in uniqueMSAs$CBSA.Code) {
   ii<-ii+1
 }
 runtime$mapping <- Sys.time() - runtime$mapping
-
 ```
 ## Histograms of Gentrification in Gentrifiable Tracts
 ```{r}
@@ -316,15 +305,7 @@ gentrification2014Histogram
 ggsave(filename = "./Writing/Figures/GentrificationHistogram2014.PNG",width = 4.5 , height = 3)
 gentrification2019Histogram
 ggsave(filename = "./Writing/Figures/GentrificationHistogram2019.PNG",width = 4.5 , height = 3)
-
-hist(gentrifiableCensusDataWithDistributionsWide$gentrificationIndex.2014,breaks = 20, color)
-hist(gentrifiableCensusDataWithDistributionsWide$gentrificationIndex.2019,breaks = 20)
-hist(gentrifiableCensusDataWithDistributionsWide$gentrificationChange,breaks = 20)
-
-summary(gentrifiableCensusDataWithDistributionsWide$gentrificationIndex.2014)
-summary(gentrifiableCensusDataWithDistributionsWide$gentrificationIndex.2019)
 ```
-
 
 # Saving Relevant Data 
 Saving compiled data to a .RData file for processing in a separate .Rmd file. 
